@@ -213,6 +213,17 @@ void manage_window(xcb_window_t window, xcb_get_window_attributes_cookie_t cooki
     /* Where to start searching for a container that swallows the new one? */
     Con *search_at = croot;
 
+    bool kde_popup = false;
+    bool kde_popup_pseudo_dock = false;
+    if (xcb_reply_contains_atom(state_reply, A__NET_WM_STATE_STAYS_ON_TOP)) {
+        /* this is a kde popup */
+        kde_popup = true;
+        if (xcb_reply_contains_atom(type_reply, A__NET_WM_WINDOW_TYPE_DOCK)) {
+            /* kde _NET_WM_STATE_STAYS_ON_TOP often are _NET_WM_WINDOW_TYPE_DOCK while in reality they dont behave as docks */    
+            kde_popup_pseudo_dock = true;
+        }
+    }
+
     if (xcb_reply_contains_atom(type_reply, A__NET_WM_WINDOW_TYPE_DOCK)) {
         LOG("This window is of type dock\n");
         Output *output = get_output_containing(geom->x, geom->y);
@@ -241,6 +252,10 @@ void manage_window(xcb_window_t window, xcb_get_window_attributes_cookie_t cooki
             }
         }
     }
+    if (kde_popup_pseudo_dock) {
+        /* remove the dock mode from this window, as docks can't float and can't receive focus */
+        cwindow->dock = W_NODOCK;
+    }    
 
     if (xcb_reply_contains_atom(type_reply, A__NET_WM_WINDOW_TYPE_DESKTOP)) {
         LOG("This window is of type desktop\n");
@@ -384,6 +399,13 @@ void manage_window(xcb_window_t window, xcb_get_window_attributes_cookie_t cooki
         }
     }
 
+    if (kde_popup_pseudo_dock) {
+        /* Removing the dock flag would lead to i3 sending them the focus which we don't want.
+         * Each knotify notification would steal the focus from you, we have to stop this. 
+         * They can still grab it themself though (like krunner) */
+        set_focus = false;
+    }
+
     /* set floating if necessary */
     bool want_floating = false;
     if (xcb_reply_contains_atom(type_reply, A__NET_WM_WINDOW_TYPE_DIALOG) ||
@@ -448,6 +470,14 @@ void manage_window(xcb_window_t window, xcb_get_window_attributes_cookie_t cooki
      * here because it’s used for dock clients. */
     if (nc->geometry.width == 0)
         nc->geometry = (Rect) {geom->x, geom->y, geom->width, geom->height};
+
+    if (kde_popup) {
+        /* we always want to _NET_WM_STATE_STAYS_ON_TOP be floating with no border */
+        nc->border_style = BS_NONE;
+        nc->border_width = 0;
+        floating_enable(nc, false); /* pass false otherwise floating_enable will reset our border to the default from the config */
+        want_floating = false; /* we dont need to try to float this again */
+    }
 
     if (want_floating) {
         DLOG("geometry = %d x %d\n", nc->geometry.width, nc->geometry.height);
