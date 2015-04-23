@@ -76,7 +76,7 @@ bool tree_restore(const char *path, xcb_get_geometry_reply_t *geometry) {
 
     /* TODO: refactor the following */
     croot = con_new(NULL, NULL);
-    croot->rect = (Rect) {
+    croot->rect = (Rect){
         geometry->x,
         geometry->y,
         geometry->width,
@@ -104,6 +104,8 @@ bool tree_restore(const char *path, xcb_get_geometry_reply_t *geometry) {
         TAILQ_INSERT_HEAD(&(croot->nodes_head), __i3, nodes);
     }
 
+    restore_open_placeholder_windows(croot);
+
     return true;
 }
 
@@ -118,7 +120,7 @@ void tree_init(xcb_get_geometry_reply_t *geometry) {
     croot->name = "root";
     croot->type = CT_ROOT;
     croot->layout = L_SPLITH;
-    croot->rect = (Rect) {
+    croot->rect = (Rect){
         geometry->x,
         geometry->y,
         geometry->width,
@@ -237,7 +239,7 @@ bool tree_close(Con *con, kill_window_t kill_window, bool dont_kill_parent, bool
              * unmap the window,
              * then reparent it to the root window. */
             xcb_change_window_attributes(conn, con->window->id,
-                                         XCB_CW_EVENT_MASK, (uint32_t[]) {XCB_NONE});
+                                         XCB_CW_EVENT_MASK, (uint32_t[]){XCB_NONE});
             xcb_unmap_window(conn, con->window->id);
             cookie = xcb_reparent_window(conn, con->window->id, root, 0, 0);
 
@@ -250,6 +252,13 @@ bool tree_close(Con *con, kill_window_t kill_window, bool dont_kill_parent, bool
             long data[] = {XCB_ICCCM_WM_STATE_WITHDRAWN, XCB_NONE};
             cookie = xcb_change_property(conn, XCB_PROP_MODE_REPLACE,
                                          con->window->id, A_WM_STATE, A_WM_STATE, 32, 2, data);
+
+            /* Remove the window from the save set. All windows in the save set
+             * will be mapped when i3 closes its connection (e.g. when
+             * restarting). This is not what we want, since some apps keep
+             * unmapped windows around and don’t expect them to suddenly be
+             * mapped. See http://bugs.i3wm.org/1617 */
+            xcb_change_save_set(conn, XCB_SET_MODE_DELETE, con->window->id);
 
             /* Ignore X11 errors for the ReparentWindow request.
              * X11 Errors are returned when the window was already destroyed */
