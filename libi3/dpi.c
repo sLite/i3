@@ -2,13 +2,11 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2014 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  */
 #include "libi3.h"
 #include <math.h>
-
-extern xcb_screen_t *root_screen;
 
 /*
  * Convert a logical amount of pixels (e.g. 2 pixels on a “standard” 96 DPI

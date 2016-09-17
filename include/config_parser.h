@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2012 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * config_parser.h: config parser-related definitions
  *
@@ -30,6 +30,11 @@ struct ConfigResultIR {
 };
 
 struct ConfigResultIR *parse_config(const char *input, struct context *context);
+
+/**
+ * launch nagbar to indicate errors in the configuration file.
+ */
+void start_config_error_nagbar(const char *configpath, bool has_errors);
 
 /**
  * Parses the given file by first replacing the variables, then calling

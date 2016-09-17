@@ -4,8 +4,8 @@ CLEAN_TARGETS += clean-i3bar
 
 i3bar_SOURCES := $(wildcard i3bar/src/*.c)
 i3bar_HEADERS := $(wildcard i3bar/include/*.h)
-i3bar_CFLAGS   = $(XCB_CFLAGS) $(PANGO_CFLAGS) $(YAJL_CFLAGS) $(LIBEV_CFLAGS)
-i3bar_LIBS     = $(XCB_LIBS) $(PANGO_LIBS) $(YAJL_LIBS) $(LIBEV_LIBS) $(XCB_XKB_LIBS)
+i3bar_CFLAGS   = $(XCB_CFLAGS) $(XCB_CURSOR_CFLAGS) $(PANGO_CFLAGS) $(YAJL_CFLAGS) $(LIBEV_CFLAGS)
+i3bar_LIBS     = $(XCB_LIBS) $(XCB_CURSOR_LIBS) $(PANGO_LIBS) $(YAJL_LIBS) $(LIBEV_LIBS) $(XCB_XKB_LIBS)
 
 i3bar_OBJECTS := $(i3bar_SOURCES:.c=.o)
 
@@ -20,8 +20,8 @@ i3bar/i3bar: libi3.a $(i3bar_OBJECTS)
 
 install-i3bar: i3bar/i3bar
 	echo "[i3bar] Install"
-	$(INSTALL) -d -m 0755 $(DESTDIR)$(PREFIX)/bin
-	$(INSTALL) -m 0755 i3bar/i3bar $(DESTDIR)$(PREFIX)/bin/
+	$(INSTALL) -d -m 0755 $(DESTDIR)$(EXEC_PREFIX)/bin
+	$(INSTALL) -m 0755 i3bar/i3bar $(DESTDIR)$(EXEC_PREFIX)/bin/
 
 clean-i3bar:
 	echo "[i3bar] Clean"

@@ -4,12 +4,24 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2012 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * window.c: Updates window attributes (X11 hints/properties).
  *
  */
 #include "all.h"
+
+/*
+ * Frees an i3Window and all its members.
+ *
+ */
+void window_free(i3Window *win) {
+    FREE(win->class_class);
+    FREE(win->class_instance);
+    i3string_free(win->name);
+    FREE(win->ran_assignments);
+    FREE(win);
+}
 
 /*
  * Updates the WM_CLASS (consisting of the class and instance) for the
@@ -27,30 +39,27 @@ void window_update_class(i3Window *win, xcb_get_property_reply_t *prop, bool bef
      * null-terminated strings (for compatibility reasons). Instead, we
      * use strdup() on both strings */
     const size_t prop_length = xcb_get_property_value_length(prop);
-    char *new_class = smalloc(prop_length + 1);
-    memcpy(new_class, xcb_get_property_value(prop), prop_length);
-    new_class[prop_length] = '\0';
+    char *new_class = xcb_get_property_value(prop);
+    const size_t class_class_index = strnlen(new_class, prop_length) + 1;
 
     FREE(win->class_instance);
     FREE(win->class_class);
 
-    win->class_instance = sstrdup(new_class);
-    if ((strlen(new_class) + 1) < prop_length)
-        win->class_class = sstrdup(new_class + strlen(new_class) + 1);
+    win->class_instance = sstrndup(new_class, prop_length);
+    if (class_class_index < prop_length)
+        win->class_class = sstrndup(new_class + class_class_index, prop_length - class_class_index);
     else
         win->class_class = NULL;
     LOG("WM_CLASS changed to %s (instance), %s (class)\n",
         win->class_instance, win->class_class);
 
     if (before_mgmt) {
-        free(new_class);
         free(prop);
         return;
     }
 
     run_assignments(win);
 
-    free(new_class);
     free(prop);
 }
 
@@ -69,6 +78,13 @@ void window_update_name(i3Window *win, xcb_get_property_reply_t *prop, bool befo
     i3string_free(win->name);
     win->name = i3string_from_utf8_with_length(xcb_get_property_value(prop),
                                                xcb_get_property_value_length(prop));
+
+    Con *con = con_by_window_id(win->id);
+    if (con != NULL && con->title_format != NULL) {
+        i3String *name = con_parse_title_format(con);
+        ewmh_update_visible_name(win->id, i3string_as_utf8(name));
+        I3STRING_FREE(name);
+    }
     win->name_x_changed = true;
     LOG("_NET_WM_NAME changed to \"%s\"\n", i3string_as_utf8(win->name));
 
@@ -107,6 +123,13 @@ void window_update_name_legacy(i3Window *win, xcb_get_property_reply_t *prop, bo
     i3string_free(win->name);
     win->name = i3string_from_utf8_with_length(xcb_get_property_value(prop),
                                                xcb_get_property_value_length(prop));
+
+    Con *con = con_by_window_id(win->id);
+    if (con != NULL && con->title_format != NULL) {
+        i3String *name = con_parse_title_format(con);
+        ewmh_update_visible_name(win->id, i3string_as_utf8(name));
+        I3STRING_FREE(name);
+    }
 
     LOG("WM_NAME changed to \"%s\"\n", i3string_as_utf8(win->name));
     LOG("Using legacy window title. Note that in order to get Unicode window "
@@ -211,13 +234,8 @@ void window_update_role(i3Window *win, xcb_get_property_reply_t *prop, bool befo
     }
 
     char *new_role;
-    if (asprintf(&new_role, "%.*s", xcb_get_property_value_length(prop),
-                 (char *)xcb_get_property_value(prop)) == -1) {
-        perror("asprintf()");
-        DLOG("Could not get WM_WINDOW_ROLE\n");
-        free(prop);
-        return;
-    }
+    sasprintf(&new_role, "%.*s", xcb_get_property_value_length(prop),
+              (char *)xcb_get_property_value(prop));
     FREE(win->role);
     win->role = new_role;
     LOG("WM_WINDOW_ROLE changed to \"%s\"\n", win->role);
@@ -230,6 +248,24 @@ void window_update_role(i3Window *win, xcb_get_property_reply_t *prop, bool befo
     run_assignments(win);
 
     free(prop);
+}
+
+/*
+ * Updates the _NET_WM_WINDOW_TYPE property.
+ *
+ */
+void window_update_type(i3Window *window, xcb_get_property_reply_t *reply) {
+    xcb_atom_t new_type = xcb_get_preferred_window_type(reply);
+    free(reply);
+    if (new_type == XCB_NONE) {
+        DLOG("cannot read _NET_WM_WINDOW_TYPE from window.\n");
+        return;
+    }
+
+    window->window_type = new_type;
+    LOG("_NET_WM_WINDOW_TYPE changed to %i.\n", window->window_type);
+
+    run_assignments(window);
 }
 
 /*
@@ -254,8 +290,10 @@ void window_update_hints(i3Window *win, xcb_get_property_reply_t *prop, bool *ur
         return;
     }
 
-    win->doesnt_accept_focus = !hints.input;
-    LOG("WM_HINTS.input changed to \"%d\"\n", hints.input);
+    if (hints.flags & XCB_ICCCM_WM_HINT_INPUT) {
+        win->doesnt_accept_focus = !hints.input;
+        LOG("WM_HINTS.input changed to \"%d\"\n", hints.input);
+    }
 
     if (urgency_hint != NULL)
         *urgency_hint = (xcb_icccm_wm_hints_get_urgency(&hints) != 0);
@@ -282,6 +320,9 @@ void window_update_motif_hints(i3Window *win, xcb_get_property_reply_t *prop, bo
      * https://people.gnome.org/~tthurman/docs/metacity/xprops_8h-source.html
      * http://stackoverflow.com/questions/13787553/detect-if-a-x11-window-has-decorations
      */
+#define MWM_HINTS_FLAGS_FIELD 0
+#define MWM_HINTS_DECORATIONS_FIELD 2
+
 #define MWM_HINTS_DECORATIONS (1 << 1)
 #define MWM_DECOR_ALL (1 << 0)
 #define MWM_DECOR_BORDER (1 << 1)
@@ -295,17 +336,23 @@ void window_update_motif_hints(i3Window *win, xcb_get_property_reply_t *prop, bo
         return;
     }
 
-    /* The property consists of an array of 5 uint64_t's. The first value is a bit
-     * mask of what properties the hint will specify. We are only interested in
-     * MWM_HINTS_DECORATIONS because it indicates that the second value of the
+    /* The property consists of an array of 5 uint32_t's. The first value is a
+     * bit mask of what properties the hint will specify. We are only interested
+     * in MWM_HINTS_DECORATIONS because it indicates that the third value of the
      * array tells us which decorations the window should have, each flag being
-     * a particular decoration. */
-    uint64_t *motif_hints = (uint64_t *)xcb_get_property_value(prop);
+     * a particular decoration. Notice that X11 (Xlib) often mentions 32-bit
+     * fields which in reality are implemented using unsigned long variables
+     * (64-bits long on amd64 for example). On the other hand,
+     * xcb_get_property_value() behaves strictly according to documentation,
+     * i.e. returns 32-bit data fields. */
+    uint32_t *motif_hints = (uint32_t *)xcb_get_property_value(prop);
 
-    if (motif_border_style != NULL && motif_hints[0] & MWM_HINTS_DECORATIONS) {
-        if (motif_hints[1] & MWM_DECOR_ALL || motif_hints[1] & MWM_DECOR_TITLE)
+    if (motif_border_style != NULL &&
+        motif_hints[MWM_HINTS_FLAGS_FIELD] & MWM_HINTS_DECORATIONS) {
+        if (motif_hints[MWM_HINTS_DECORATIONS_FIELD] & MWM_DECOR_ALL ||
+            motif_hints[MWM_HINTS_DECORATIONS_FIELD] & MWM_DECOR_TITLE)
             *motif_border_style = BS_NORMAL;
-        else if (motif_hints[1] & MWM_DECOR_BORDER)
+        else if (motif_hints[MWM_HINTS_DECORATIONS_FIELD] & MWM_DECOR_BORDER)
             *motif_border_style = BS_PIXEL;
         else
             *motif_border_style = BS_NONE;
@@ -313,6 +360,8 @@ void window_update_motif_hints(i3Window *win, xcb_get_property_reply_t *prop, bo
 
     FREE(prop);
 
+#undef MWM_HINTS_FLAGS_FIELD
+#undef MWM_HINTS_DECORATIONS_FIELD
 #undef MWM_HINTS_DECORATIONS
 #undef MWM_DECOR_ALL
 #undef MWM_DECOR_BORDER

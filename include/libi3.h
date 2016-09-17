@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2013 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * libi3: contains functions which are used by i3 *and* accompanying tools such
  * as i3-msg, i3-config-wizard, …
@@ -20,6 +20,18 @@
 #if PANGO_SUPPORT
 #include <pango/pango.h>
 #endif
+#ifdef CAIRO_SUPPORT
+#include <cairo/cairo-xcb.h>
+#endif
+
+#define DEFAULT_DIR_MODE (S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH)
+
+/**
+ * XCB connection and root screen
+ *
+ */
+extern xcb_connection_t *conn;
+extern xcb_screen_t *root_screen;
 
 /**
  * Opaque data structure for storing strings.
@@ -111,7 +123,7 @@ void *smalloc(size_t size);
  * there is no more memory available)
  *
  */
-void *scalloc(size_t size);
+void *scalloc(size_t num, size_t size);
 
 /**
  * Safe-wrapper around realloc which exits if realloc returns NULL (meaning
@@ -126,6 +138,13 @@ void *srealloc(void *ptr, size_t size);
  *
  */
 char *sstrdup(const char *str);
+
+/**
+ * Safe-wrapper around strndup which exits if strndup returns NULL (meaning that
+ * there is no more memory available)
+ *
+ */
+char *sstrndup(const char *str, size_t size);
 
 /**
  * Safe-wrapper around asprintf which exits if it returns -1 (meaning that
@@ -234,7 +253,12 @@ bool i3string_is_markup(i3String *str);
 /**
  * Set whether the i3String should use Pango markup.
  */
-void i3string_set_markup(i3String *str, bool is_markup);
+void i3string_set_markup(i3String *str, bool pango_markup);
+
+/**
+ * Escape pango markup characters in the given string.
+ */
+i3String *i3string_escape_markup(i3String *str);
 
 /**
  * Returns the number of glyphs in an i3String.
@@ -368,11 +392,30 @@ char *convert_ucs2_to_utf8(xcb_char2b_t *text, size_t num_glyphs);
  */
 xcb_char2b_t *convert_utf8_to_ucs2(char *input, size_t *real_strlen);
 
+/* Represents a color split by color channel. */
+typedef struct color_t {
+    double red;
+    double green;
+    double blue;
+    double alpha;
+
+    /* The colorpixel we use for direct XCB calls. */
+    uint32_t colorpixel;
+} color_t;
+
+#define COLOR_TRANSPARENT ((color_t){.red = 0.0, .green = 0.0, .blue = 0.0, .colorpixel = 0})
+
 /**
  * Defines the colors to be used for the forthcoming draw_text calls.
  *
  */
-void set_font_colors(xcb_gcontext_t gc, uint32_t foreground, uint32_t background);
+void set_font_colors(xcb_gcontext_t gc, color_t foreground, color_t background);
+
+/**
+ * Returns true if and only if the current font is a pango font.
+ *
+ */
+bool font_is_pango(void);
 
 /**
  * Draws text onto the specified X drawable (normally a pixmap) at the
@@ -382,8 +425,8 @@ void set_font_colors(xcb_gcontext_t gc, uint32_t foreground, uint32_t background
  * Text must be specified as an i3String.
  *
  */
-void draw_text(i3String *text, xcb_drawable_t drawable,
-               xcb_gcontext_t gc, int x, int y, int max_width);
+void draw_text(i3String *text, xcb_drawable_t drawable, xcb_gcontext_t gc,
+               xcb_visualtype_t *visual, int x, int y, int max_width);
 
 /**
  * ASCII version of draw_text to print static strings.
@@ -434,3 +477,132 @@ char *get_exe_path(const char *argv0);
  *
  */
 int logical_px(const int logical);
+
+/**
+ * This function resolves ~ in pathnames.
+ * It may resolve wildcards in the first part of the path, but if no match
+ * or multiple matches are found, it just returns a copy of path as given.
+ *
+ */
+char *resolve_tilde(const char *path);
+
+/**
+ * Get the path of the first configuration file found. If override_configpath
+ * is specified, that path is returned and saved for further calls. Otherwise,
+ * checks the home directory first, then the system directory first, always
+ * taking into account the XDG Base Directory Specification ($XDG_CONFIG_HOME,
+ * $XDG_CONFIG_DIRS)
+ *
+ */
+char *get_config_path(const char *override_configpath, bool use_system_paths);
+
+#if !defined(__sun)
+/**
+ * Emulates mkdir -p (creates any missing folders)
+ *
+ */
+int mkdirp(const char *path, mode_t mode);
+#endif
+
+/** Helper structure for usage in format_placeholders(). */
+typedef struct placeholder_t {
+    /* The placeholder to be replaced, e.g., "%title". */
+    char *name;
+    /* The value this placeholder should be replaced with. */
+    char *value;
+} placeholder_t;
+
+/**
+ * Replaces occurrences of the defined placeholders in the format string.
+ *
+ */
+char *format_placeholders(char *format, placeholder_t *placeholders, int num);
+
+#ifdef CAIRO_SUPPORT
+/* We need to flush cairo surfaces twice to avoid an assertion bug. See #1989
+ * and https://bugs.freedesktop.org/show_bug.cgi?id=92455. */
+#define CAIRO_SURFACE_FLUSH(surface)  \
+    do {                              \
+        cairo_surface_flush(surface); \
+        cairo_surface_flush(surface); \
+    } while (0)
+#endif
+
+/* A wrapper grouping an XCB drawable and both a graphics context
+ * and the corresponding cairo objects representing it. */
+typedef struct surface_t {
+    /* The drawable which is being represented. */
+    xcb_drawable_t id;
+
+    /* A classic XCB graphics context. */
+    xcb_gcontext_t gc;
+
+    xcb_visualtype_t *visual_type;
+
+    int width;
+    int height;
+
+#ifdef CAIRO_SUPPORT
+    /* A cairo surface representing the drawable. */
+    cairo_surface_t *surface;
+
+    /* The cairo object representing the drawable. In general,
+     * this is what one should use for any drawing operation. */
+    cairo_t *cr;
+#endif
+} surface_t;
+
+/**
+ * Initialize the surface to represent the given drawable.
+ *
+ */
+void draw_util_surface_init(xcb_connection_t *conn, surface_t *surface, xcb_drawable_t drawable,
+                            xcb_visualtype_t *visual, int width, int height);
+
+/**
+ * Resize the surface to the given size.
+ *
+ */
+void draw_util_surface_set_size(surface_t *surface, int width, int height);
+
+/**
+ * Destroys the surface.
+ *
+ */
+void draw_util_surface_free(xcb_connection_t *conn, surface_t *surface);
+
+/**
+ * Parses the given color in hex format to an internal color representation.
+ * Note that the input must begin with a hash sign, e.g., "#3fbc59".
+ *
+ */
+color_t draw_util_hex_to_color(const char *color);
+
+/**
+ * Draw the given text using libi3.
+ * This function also marks the surface dirty which is needed if other means of
+ * drawing are used. This will be the case when using XCB to draw text.
+ *
+ */
+void draw_util_text(i3String *text, surface_t *surface, color_t fg_color, color_t bg_color, int x, int y, int max_width);
+
+/**
+ * Draws a filled rectangle.
+ * This function is a convenience wrapper and takes care of flushing the
+ * surface as well as restoring the cairo state.
+ *
+ */
+void draw_util_rectangle(xcb_connection_t *conn, surface_t *surface, color_t color, double x, double y, double w, double h);
+
+/**
+ * Clears a surface with the given color.
+ *
+ */
+void draw_util_clear_surface(xcb_connection_t *conn, surface_t *surface, color_t color);
+
+/**
+ * Copies a surface onto another surface.
+ *
+ */
+void draw_util_copy_surface(xcb_connection_t *conn, surface_t *src, surface_t *dest, double src_x, double src_y,
+                            double dest_x, double dest_y, double width, double height);

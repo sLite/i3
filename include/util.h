@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2011 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * util.c: Utility functions, which can be useful everywhere within i3 (see
  *         also libi3).
@@ -20,7 +20,7 @@
         if (pointer == NULL)       \
             die(__VA_ARGS__);      \
     }
-#define STARTS_WITH(string, needle) (strncasecmp(string, needle, strlen(needle)) == 0)
+#define STARTS_WITH(string, needle) (strncasecmp((string), (needle), strlen((needle))) == 0)
 #define CIRCLEQ_NEXT_OR_NULL(head, elm, field) (CIRCLEQ_NEXT(elm, field) != CIRCLEQ_END(head) ? CIRCLEQ_NEXT(elm, field) : NULL)
 #define CIRCLEQ_PREV_OR_NULL(head, elm, field) (CIRCLEQ_PREV(elm, field) != CIRCLEQ_END(head) ? CIRCLEQ_PREV(elm, field) : NULL)
 #define FOR_TABLE(workspace)                             \
@@ -107,14 +107,6 @@ void check_error(xcb_connection_t *conn, xcb_void_cookie_t cookie,
                  char *err_message);
 
 /**
- * This function resolves ~ in pathnames.
- * It may resolve wildcards in the first part of the path, but if no match
- * or multiple matches are found, it just returns a copy of path as given.
- *
- */
-char *resolve_tilde(const char *path);
-
-/**
  * Checks if the given path exists by calling stat().
  *
  */
@@ -137,6 +129,13 @@ void i3_restart(bool forget_layout);
 void *memmem(const void *l, size_t l_len, const void *s, size_t s_len);
 
 #endif
+
+/**
+ * Escapes the given string if a pango font is currently used.
+ * If the string has to be escaped, the input string will be free'd.
+ *
+ */
+char *pango_escape_markup(char *input);
 
 /**
  * Starts an i3-nagbar instance with the given parameters. Takes care of

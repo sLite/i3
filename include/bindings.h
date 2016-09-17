@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2014 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * bindings.h: Functions for configuring, finding, and running bindings.
  *
@@ -15,7 +15,7 @@ extern pid_t command_error_nagbar_pid;
  * The name of the default mode.
  *
  */
-const char *DEFAULT_BINDING_MODE;
+extern const char *DEFAULT_BINDING_MODE;
 
 /**
  * Adds a binding from config parameters given as strings and returns a
@@ -24,13 +24,21 @@ const char *DEFAULT_BINDING_MODE;
  *
  */
 Binding *configure_binding(const char *bindtype, const char *modifiers, const char *input_code,
-                           const char *release, const char *whole_window, const char *command, const char *mode);
+                           const char *release, const char *border, const char *whole_window,
+                           const char *command, const char *mode, bool pango_markup);
 
 /**
  * Grab the bound keys (tell X to send us keypress events for those keycodes)
  *
  */
-void grab_all_keys(xcb_connection_t *conn, bool bind_mode_switch);
+void grab_all_keys(xcb_connection_t *conn);
+
+/**
+ * Release the button grabs on all managed windows and regrab them,
+ * reevaluating which buttons need to be grabbed.
+ *
+ */
+void regrab_all_buttons(xcb_connection_t *conn);
 
 /**
  * Returns a pointer to the Binding that matches the given xcb event or NULL if
@@ -50,6 +58,21 @@ void translate_keysyms(void);
  *
  */
 void switch_mode(const char *new_mode);
+
+/**
+ * Reorders bindings by event_state_mask descendingly so that get_binding()
+ * correctly matches more specific bindings before more generic bindings. Take
+ * the following binding configuration as an example:
+ *
+ *   bindsym n nop lower-case n pressed
+ *   bindsym Shift+n nop upper-case n pressed
+ *
+ * Without reordering, the first binding’s event_state_mask of 0x0 would match
+ * the actual event_stat_mask of 0x1 and hence trigger instead of the second
+ * keybinding.
+ *
+ */
+void reorder_bindings(void);
 
 /**
  * Checks for duplicate key bindings (the same keycode or keysym is configured
@@ -73,3 +96,18 @@ void binding_free(Binding *bind);
  *
  */
 CommandResult *run_binding(Binding *bind, Con *con);
+
+/**
+ * Loads the XKB keymap from the X11 server and feeds it to xkbcommon.
+ *
+ */
+bool load_keymap(void);
+
+/**
+ * Returns true if the current config has any binding to a scroll wheel button
+ * (4 or 5) which is a whole-window binding.
+ * We need this to figure out whether we should grab all buttons or just 1-3
+ * when managing a window. See #2049.
+ *
+ */
+bool bindings_should_grab_scrollwheel_buttons(void);

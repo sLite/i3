@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2012 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * i3-msg/main.c: Utility which sends messages to a running i3-instance using
  * IPC via UNIX domain sockets.
@@ -77,7 +77,7 @@ static int reply_boolean_cb(void *params, int val) {
 }
 
 static int reply_string_cb(void *params, const unsigned char *val, size_t len) {
-    char *str = scalloc(len + 1);
+    char *str = scalloc(len + 1, 1);
     strncpy(str, (const char *)val, len);
     if (strcmp(last_key, "error") == 0)
         last_reply.error = str;
@@ -105,7 +105,7 @@ static int reply_end_map_cb(void *params) {
 
 static int reply_map_key_cb(void *params, const unsigned char *keyVal, size_t keyLen) {
     free(last_key);
-    last_key = scalloc(keyLen + 1);
+    last_key = scalloc(keyLen + 1, 1);
     strncpy(last_key, (const char *)keyVal, keyLen);
     return 1;
 }
@@ -119,7 +119,15 @@ static yajl_callbacks reply_callbacks = {
 };
 
 int main(int argc, char *argv[]) {
-    socket_path = getenv("I3SOCK");
+#if defined(__OpenBSD__)
+    if (pledge("stdio rpath unix", NULL) == -1)
+        err(EXIT_FAILURE, "pledge");
+#endif
+    char *env_socket_path = getenv("I3SOCK");
+    if (env_socket_path)
+        socket_path = sstrdup(env_socket_path);
+    else
+        socket_path = NULL;
     int o, option_index = 0;
     uint32_t message_type = I3_IPC_MESSAGE_TYPE_COMMAND;
     char *payload = NULL;
@@ -187,8 +195,7 @@ int main(int argc, char *argv[]) {
             payload = sstrdup(argv[optind]);
         } else {
             char *both;
-            if (asprintf(&both, "%s %s", payload, argv[optind]) == -1)
-                err(EXIT_FAILURE, "asprintf");
+            sasprintf(&both, "%s %s", payload, argv[optind]);
             free(payload);
             payload = both;
         }

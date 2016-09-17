@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2011 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * con.c: Functions which deal with containers directly (creating containers,
  *        searching containers, getting specific properties from containers,
@@ -31,6 +31,12 @@ Con *con_new(Con *parent, i3Window *window);
 void con_focus(Con *con);
 
 /**
+ * Closes the given container.
+ *
+ */
+void con_close(Con *con, kill_window_t kill_window);
+
+/**
  * Returns true when this node is a leaf node (has no children)
  *
  */
@@ -42,11 +48,24 @@ bool con_is_leaf(Con *con);
  */
 bool con_has_managed_window(Con *con);
 
-/*
+/**
  * Returns true if a container should be considered split.
  *
  */
 bool con_is_split(Con *con);
+
+/**
+ * This will only return true for containers which have some parent with
+ * a tabbed / stacked parent of which they are not the currently focused child.
+ *
+ */
+bool con_is_hidden(Con *con);
+
+/**
+ * Returns whether the container or any of its children is sticky.
+ *
+ */
+bool con_is_sticky(Con *con);
 
 /**
  * Returns true if this node has regular or floating children.
@@ -100,6 +119,12 @@ bool con_is_internal(Con *con);
 bool con_is_floating(Con *con);
 
 /**
+ * Returns true if the container is a docked container.
+ *
+ */
+bool con_is_docked(Con *con);
+
+/**
  * Checks if the given container is either floating or inside some floating
  * container. It returns the FLOATING_CON container.
  *
@@ -125,6 +150,42 @@ Con *con_by_window_id(xcb_window_t window);
  *
  */
 Con *con_by_frame_id(xcb_window_t frame);
+
+/**
+ * Returns the container with the given mark or NULL if no such container
+ * exists.
+ *
+ */
+Con *con_by_mark(const char *mark);
+
+/**
+ * Returns true if and only if the given containers holds the mark.
+ *
+ */
+bool con_has_mark(Con *con, const char *mark);
+
+/**
+ * Toggles the mark on a container.
+ * If the container already has this mark, the mark is removed.
+ * Otherwise, the mark is assigned to the container.
+ *
+ */
+void con_mark_toggle(Con *con, const char *mark, mark_mode_t mode);
+
+/**
+ * Assigns a mark to the container.
+ *
+ */
+void con_mark(Con *con, const char *mark, mark_mode_t mode);
+
+/*
+ * Removes marks from containers.
+ * If con is NULL, all containers are considered.
+ * If name is NULL, this removes all existing marks.
+ * Otherwise, it will only remove the given mark (if it is present).
+ *
+ */
+void con_unmark(Con *con, const char *name);
 
 /**
  * Returns the first container below 'con' which wants to swallow this window
@@ -198,10 +259,20 @@ void con_disable_fullscreen(Con *con);
  * The dont_warp flag disables pointer warping and will be set when this
  * function is called while dragging a floating window.
  *
+ * If ignore_focus is set, the container will be moved without modifying focus
+ * at all.
+ *
  * TODO: is there a better place for this function?
  *
  */
-void con_move_to_workspace(Con *con, Con *workspace, bool fix_coordinates, bool dont_warp);
+void con_move_to_workspace(Con *con, Con *workspace, bool fix_coordinates,
+                           bool dont_warp, bool ignore_focus);
+
+/**
+ * Moves the given container to the given mark.
+ *
+ */
+bool con_move_to_mark(Con *con, const char *mark);
 
 /**
  * Returns the orientation of the given container (for stacked containers,
@@ -213,7 +284,7 @@ orientation_t con_orientation(Con *con);
 
 /**
  * Returns the container which will be focused next when the given container
- * is not available anymore. Called in tree_close and con_move_to_workspace
+ * is not available anymore. Called in tree_close_internal and con_move_to_workspace
  * to properly restore focus.
  *
  */
@@ -362,3 +433,9 @@ char *con_get_tree_representation(Con *con);
  *
  */
 void con_force_split_parents_redraw(Con *con);
+
+/**
+ * Returns the window title considering the current title format.
+ *
+ */
+i3String *con_parse_title_format(Con *con);

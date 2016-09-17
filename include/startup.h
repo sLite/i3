@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2011 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * startup.c: Startup notification code. Ensures a startup notification context
  *            is setup when launching applications. We store the current
@@ -48,7 +48,7 @@ void startup_monitor_event(SnMonitorEvent *event, void *userdata);
  * Renames workspaces that are mentioned in the startup sequences.
  *
  */
-void startup_sequence_rename_workspace(char *old_name, char *new_name);
+void startup_sequence_rename_workspace(const char *old_name, const char *new_name);
 
 /**
  * Gets the stored startup sequence for the _NET_STARTUP_ID of a given window.

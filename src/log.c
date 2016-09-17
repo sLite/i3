@@ -4,7 +4,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2011 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * log.c: Logging functions.
  *
@@ -58,6 +58,8 @@ static char *loglastwrap;
 static int logbuffer_size;
 /* File descriptor for shm_open. */
 static int logbuffer_shm;
+/* Size (in bytes) of physical memory */
+static long long physical_mem_bytes;
 
 /*
  * Writes the offsets for the next write and for the last wrap to the
@@ -89,6 +91,16 @@ void init_logging(void) {
             }
         }
     }
+    if (physical_mem_bytes == 0) {
+#if defined(__APPLE__)
+        int mib[2] = {CTL_HW, HW_MEMSIZE};
+        size_t length = sizeof(long long);
+        sysctl(mib, 2, &physical_mem_bytes, &length, NULL, 0);
+#else
+        physical_mem_bytes = (long long)sysconf(_SC_PHYS_PAGES) *
+                             sysconf(_SC_PAGESIZE);
+#endif
+    }
     /* Start SHM logging if shmlog_size is > 0. shmlog_size is SHMLOG_SIZE by
      * default on development versions, and 0 on release versions. If it is
      * not > 0, the user has turned it off, so let's close the logbuffer. */
@@ -108,15 +120,6 @@ void open_logbuffer(void) {
          * For 512 MiB of RAM this will lead to a 5 MiB log buffer.
          * At the moment (2011-12-10), no testcase leads to an i3 log
          * of more than ~ 600 KiB. */
-    long long physical_mem_bytes;
-#if defined(__APPLE__)
-    int mib[2] = {CTL_HW, HW_MEMSIZE};
-    size_t length = sizeof(long long);
-    sysctl(mib, 2, &physical_mem_bytes, &length, NULL, 0);
-#else
-    physical_mem_bytes = (long long)sysconf(_SC_PHYS_PAGES) *
-                         sysconf(_SC_PAGESIZE);
-#endif
     logbuffer_size = min(physical_mem_bytes * 0.01, shmlog_size);
 #if defined(__FreeBSD__)
     sasprintf(&shmlogname, "/tmp/i3-log-%d", getpid());
@@ -172,6 +175,7 @@ void open_logbuffer(void) {
 void close_logbuffer(void) {
     close(logbuffer_shm);
     shm_unlink(shmlogname);
+    free(shmlogname);
     logbuffer = NULL;
     shmlogname = "";
 }
@@ -246,6 +250,15 @@ static void vlog(const bool print, const char *fmt, va_list args) {
         len += vsnprintf(message + len, sizeof(message) - len, fmt, args);
         if (len >= sizeof(message)) {
             fprintf(stderr, "BUG: single log message > 4k\n");
+
+            /* vsnprintf returns the number of bytes that *would have been written*,
+             * not the actual amount written. Thus, limit len to sizeof(message) to avoid
+             * memory corruption and outputting garbage later.  */
+            len = sizeof(message);
+
+            /* Punch in a newline so the next log message is not dangling at
+             * the end of the truncated message. */
+            message[len - 2] = '\n';
         }
 
         /* If there is no space for the current message in the ringbuffer, we

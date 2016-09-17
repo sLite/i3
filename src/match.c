@@ -4,7 +4,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2011 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * A "match" is a data structure which acts like a mask or expression to match
  * certain windows or not. For example, when using commands, you can specify a
@@ -27,8 +27,10 @@
  */
 void match_init(Match *match) {
     memset(match, 0, sizeof(Match));
-    match->dock = -1;
+    match->dock = M_DONTCHECK;
     match->urgent = U_DONTCHECK;
+    /* we use this as the placeholder value for "not set". */
+    match->window_type = UINT32_MAX;
 }
 
 /*
@@ -46,8 +48,10 @@ bool match_is_empty(Match *match) {
             match->class == NULL &&
             match->instance == NULL &&
             match->window_role == NULL &&
+            match->workspace == NULL &&
             match->urgent == U_DONTCHECK &&
             match->id == XCB_NONE &&
+            match->window_type == UINT32_MAX &&
             match->con_id == NULL &&
             match->dock == -1 &&
             match->floating == M_ANY);
@@ -75,6 +79,7 @@ void match_copy(Match *dest, Match *src) {
     DUPLICATE_REGEX(class);
     DUPLICATE_REGEX(instance);
     DUPLICATE_REGEX(window_role);
+    DUPLICATE_REGEX(workspace);
 }
 
 /*
@@ -85,8 +90,12 @@ bool match_matches_window(Match *match, i3Window *window) {
     LOG("Checking window 0x%08x (class %s)\n", window->id, window->class_class);
 
     if (match->class != NULL) {
-        if (window->class_class != NULL &&
-            regex_matches(match->class, window->class_class)) {
+        if (window->class_class == NULL)
+            return false;
+        if (strcmp(match->class->pattern, "__focused__") == 0 &&
+            strcmp(window->class_class, focused->window->class_class) == 0) {
+            LOG("window class matches focused window\n");
+        } else if (regex_matches(match->class, window->class_class)) {
             LOG("window class matches (%s)\n", window->class_class);
         } else {
             return false;
@@ -94,8 +103,12 @@ bool match_matches_window(Match *match, i3Window *window) {
     }
 
     if (match->instance != NULL) {
-        if (window->class_instance != NULL &&
-            regex_matches(match->instance, window->class_instance)) {
+        if (window->class_instance == NULL)
+            return false;
+        if (strcmp(match->instance->pattern, "__focused__") == 0 &&
+            strcmp(window->class_instance, focused->window->class_instance) == 0) {
+            LOG("window instance matches focused window\n");
+        } else if (regex_matches(match->instance, window->class_instance)) {
             LOG("window instance matches (%s)\n", window->class_instance);
         } else {
             return false;
@@ -112,18 +125,36 @@ bool match_matches_window(Match *match, i3Window *window) {
     }
 
     if (match->title != NULL) {
-        if (window->name != NULL &&
-            regex_matches(match->title, i3string_as_utf8(window->name))) {
-            LOG("title matches (%s)\n", i3string_as_utf8(window->name));
+        if (window->name == NULL)
+            return false;
+
+        const char *title = i3string_as_utf8(window->name);
+        if (strcmp(match->title->pattern, "__focused__") == 0 &&
+            strcmp(title, i3string_as_utf8(focused->window->name)) == 0) {
+            LOG("window title matches focused window\n");
+        } else if (regex_matches(match->title, title)) {
+            LOG("title matches (%s)\n", title);
         } else {
             return false;
         }
     }
 
     if (match->window_role != NULL) {
-        if (window->role != NULL &&
-            regex_matches(match->window_role, window->role)) {
+        if (window->role == NULL)
+            return false;
+        if (strcmp(match->window_role->pattern, "__focused__") == 0 &&
+            strcmp(window->role, focused->window->role) == 0) {
+            LOG("window role matches focused window\n");
+        } else if (regex_matches(match->window_role, window->role)) {
             LOG("window_role matches (%s)\n", window->role);
+        } else {
+            return false;
+        }
+    }
+
+    if (match->window_type != UINT32_MAX) {
+        if (window->window_type == match->window_type) {
+            LOG("window_type matches (%i)\n", match->window_type);
         } else {
             return false;
         }
@@ -161,7 +192,25 @@ bool match_matches_window(Match *match, i3Window *window) {
         LOG("urgent matches oldest\n");
     }
 
-    if (match->dock != -1) {
+    if (match->workspace != NULL) {
+        if ((con = con_by_window_id(window->id)) == NULL)
+            return false;
+
+        Con *ws = con_get_workspace(con);
+        if (ws == NULL)
+            return false;
+
+        if (strcmp(match->workspace->pattern, "__focused__") == 0 &&
+            strcmp(ws->name, con_get_workspace(focused)->name) == 0) {
+            LOG("workspace matches focused workspace\n");
+        } else if (regex_matches(match->workspace, ws->name)) {
+            LOG("workspace matches (%s)\n", ws->name);
+        } else {
+            return false;
+        }
+    }
+
+    if (match->dock != M_DONTCHECK) {
         if ((window->dock == W_DOCK_TOP && match->dock == M_DOCK_TOP) ||
             (window->dock == W_DOCK_BOTTOM && match->dock == M_DOCK_BOTTOM) ||
             ((window->dock == W_DOCK_TOP || window->dock == W_DOCK_BOTTOM) &&
@@ -174,11 +223,25 @@ bool match_matches_window(Match *match, i3Window *window) {
         }
     }
 
-    /* We don’t check the mark because this function is not even called when
-     * the mark would have matched - it is checked in cmdparse.y itself */
     if (match->mark != NULL) {
-        LOG("mark does not match\n");
-        return false;
+        if ((con = con_by_window_id(window->id)) == NULL)
+            return false;
+
+        bool matched = false;
+        mark_t *mark;
+        TAILQ_FOREACH(mark, &(con->marks_head), marks) {
+            if (regex_matches(match->mark, mark->name)) {
+                matched = true;
+                break;
+            }
+        }
+
+        if (matched) {
+            LOG("mark matches\n");
+        } else {
+            LOG("mark does not match\n");
+            return false;
+        }
     }
 
     return true;
@@ -189,19 +252,138 @@ bool match_matches_window(Match *match, i3Window *window) {
  *
  */
 void match_free(Match *match) {
-    /* First step: free the regex fields / patterns */
+    FREE(match->error);
     regex_free(match->title);
     regex_free(match->application);
     regex_free(match->class);
     regex_free(match->instance);
     regex_free(match->mark);
     regex_free(match->window_role);
+    regex_free(match->workspace);
+}
 
-    /* Second step: free the regex helper struct itself */
-    FREE(match->title);
-    FREE(match->application);
-    FREE(match->class);
-    FREE(match->instance);
-    FREE(match->mark);
-    FREE(match->window_role);
+/*
+ * Interprets a ctype=cvalue pair and adds it to the given match specification.
+ *
+ */
+void match_parse_property(Match *match, const char *ctype, const char *cvalue) {
+    assert(match != NULL);
+    DLOG("ctype=*%s*, cvalue=*%s*\n", ctype, cvalue);
+
+    if (strcmp(ctype, "class") == 0) {
+        regex_free(match->class);
+        match->class = regex_new(cvalue);
+        return;
+    }
+
+    if (strcmp(ctype, "instance") == 0) {
+        regex_free(match->instance);
+        match->instance = regex_new(cvalue);
+        return;
+    }
+
+    if (strcmp(ctype, "window_role") == 0) {
+        regex_free(match->window_role);
+        match->window_role = regex_new(cvalue);
+        return;
+    }
+
+    if (strcmp(ctype, "con_id") == 0) {
+        if (strcmp(cvalue, "__focused__") == 0) {
+            match->con_id = focused;
+            return;
+        }
+
+        char *end;
+        long parsed = strtol(cvalue, &end, 0);
+        if (parsed == LONG_MIN ||
+            parsed == LONG_MAX ||
+            parsed < 0 ||
+            (end && *end != '\0')) {
+            ELOG("Could not parse con id \"%s\"\n", cvalue);
+            match->error = sstrdup("invalid con_id");
+        } else {
+            match->con_id = (Con *)parsed;
+            DLOG("id as int = %p\n", match->con_id);
+        }
+        return;
+    }
+
+    if (strcmp(ctype, "id") == 0) {
+        char *end;
+        long parsed = strtol(cvalue, &end, 0);
+        if (parsed == LONG_MIN ||
+            parsed == LONG_MAX ||
+            parsed < 0 ||
+            (end && *end != '\0')) {
+            ELOG("Could not parse window id \"%s\"\n", cvalue);
+            match->error = sstrdup("invalid id");
+        } else {
+            match->id = parsed;
+            DLOG("window id as int = %d\n", match->id);
+        }
+        return;
+    }
+
+    if (strcmp(ctype, "window_type") == 0) {
+        if (strcasecmp(cvalue, "normal") == 0) {
+            match->window_type = A__NET_WM_WINDOW_TYPE_NORMAL;
+        } else if (strcasecmp(cvalue, "dialog") == 0) {
+            match->window_type = A__NET_WM_WINDOW_TYPE_DIALOG;
+        } else if (strcasecmp(cvalue, "utility") == 0) {
+            match->window_type = A__NET_WM_WINDOW_TYPE_UTILITY;
+        } else if (strcasecmp(cvalue, "toolbar") == 0) {
+            match->window_type = A__NET_WM_WINDOW_TYPE_TOOLBAR;
+        } else if (strcasecmp(cvalue, "splash") == 0) {
+            match->window_type = A__NET_WM_WINDOW_TYPE_SPLASH;
+        } else if (strcasecmp(cvalue, "menu") == 0) {
+            match->window_type = A__NET_WM_WINDOW_TYPE_MENU;
+        } else if (strcasecmp(cvalue, "dropdown_menu") == 0) {
+            match->window_type = A__NET_WM_WINDOW_TYPE_DROPDOWN_MENU;
+        } else if (strcasecmp(cvalue, "popup_menu") == 0) {
+            match->window_type = A__NET_WM_WINDOW_TYPE_POPUP_MENU;
+        } else if (strcasecmp(cvalue, "tooltip") == 0) {
+            match->window_type = A__NET_WM_WINDOW_TYPE_TOOLTIP;
+        } else if (strcasecmp(cvalue, "notification") == 0) {
+            match->window_type = A__NET_WM_WINDOW_TYPE_NOTIFICATION;
+        } else {
+            ELOG("unknown window_type value \"%s\"\n", cvalue);
+            match->error = sstrdup("unknown window_type value");
+        }
+
+        return;
+    }
+
+    if (strcmp(ctype, "con_mark") == 0) {
+        regex_free(match->mark);
+        match->mark = regex_new(cvalue);
+        return;
+    }
+
+    if (strcmp(ctype, "title") == 0) {
+        regex_free(match->title);
+        match->title = regex_new(cvalue);
+        return;
+    }
+
+    if (strcmp(ctype, "urgent") == 0) {
+        if (strcasecmp(cvalue, "latest") == 0 ||
+            strcasecmp(cvalue, "newest") == 0 ||
+            strcasecmp(cvalue, "recent") == 0 ||
+            strcasecmp(cvalue, "last") == 0) {
+            match->urgent = U_LATEST;
+        } else if (strcasecmp(cvalue, "oldest") == 0 ||
+                   strcasecmp(cvalue, "first") == 0) {
+            match->urgent = U_OLDEST;
+        }
+        return;
+    }
+
+    if (strcmp(ctype, "workspace") == 0) {
+        regex_free(match->workspace);
+        match->workspace = regex_new(cvalue);
+        return;
+    }
+
+    ELOG("Unknown criterion: %s\n", ctype);
 }

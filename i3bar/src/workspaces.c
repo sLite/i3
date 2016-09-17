@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3bar - an xcb-based status- and ws-bar for i3
- * © 2010-2012 Axel Wagner and contributors (see also: LICENSE)
+ * © 2010 Axel Wagner and contributors (see also: LICENSE)
  *
  * workspaces.c: Maintaining the workspace lists
  *
@@ -102,11 +102,9 @@ static int workspaces_integer_cb(void *params_, long long val) {
 static int workspaces_string_cb(void *params_, const unsigned char *val, size_t len) {
     struct workspaces_json_params *params = (struct workspaces_json_params *)params_;
 
-    char *output_name;
-
     if (!strcmp(params->cur_key, "name")) {
         const char *ws_name = (const char *)val;
-        params->workspaces_walk->canonical_name = strndup(ws_name, len);
+        params->workspaces_walk->canonical_name = sstrndup(ws_name, len);
 
         if (config.strip_ws_numbers && params->workspaces_walk->num >= 0) {
             /* Special case: strip off the workspace number */
@@ -147,11 +145,11 @@ static int workspaces_string_cb(void *params_, const unsigned char *val, size_t 
 
     if (!strcmp(params->cur_key, "output")) {
         /* We add the ws to the TAILQ of the output, it belongs to */
-        output_name = smalloc(sizeof(const unsigned char) * (len + 1));
-        strncpy(output_name, (const char *)val, len);
-        output_name[len] = '\0';
+        char *output_name = NULL;
+        sasprintf(&output_name, "%.*s", len, val);
+
         i3_output *target = get_output_by_name(output_name);
-        if (target) {
+        if (target != NULL) {
             params->workspaces_walk->output = target;
 
             TAILQ_INSERT_TAIL(params->workspaces_walk->output->workspaces,
@@ -201,11 +199,7 @@ static int workspaces_start_map_cb(void *params_) {
 static int workspaces_map_key_cb(void *params_, const unsigned char *keyVal, size_t keyLen) {
     struct workspaces_json_params *params = (struct workspaces_json_params *)params_;
     FREE(params->cur_key);
-
-    params->cur_key = smalloc(sizeof(unsigned char) * (keyLen + 1));
-    strncpy(params->cur_key, (const char *)keyVal, keyLen);
-    params->cur_key[keyLen] = '\0';
-
+    sasprintf(&(params->cur_key), "%.*s", keyLen, keyVal);
     return 1;
 }
 

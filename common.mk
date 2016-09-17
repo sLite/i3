@@ -1,10 +1,14 @@
 UNAME=$(shell uname)
 DEBUG=1
-COVERAGE=0
+ASAN=0
 INSTALL=install
 LN=ln
+PKG_CONFIG=pkg-config
 ifndef PREFIX
   PREFIX=/usr
+endif
+ifndef EXEC_PREFIX
+  EXEC_PREFIX=$(PREFIX)
 endif
 ifndef SYSCONFDIR
   ifeq ($(PREFIX),/usr)
@@ -39,6 +43,11 @@ else
 CFLAGS ?= -pipe -O2 -freorder-blocks-and-partition
 endif
 
+ifeq ($(ASAN),1)
+CFLAGS += -fsanitize=address -DI3_ASAN_ENABLED
+LDFLAGS += -fsanitize=address
+endif
+
 # Default LDFLAGS that users should be able to override
 LDFLAGS ?= $(as_needed_LDFLAG)
 
@@ -60,7 +69,7 @@ I3_CPPFLAGS += -DI3__FILE__=__FILE__
 
 ## Libraries flags
 
-ifeq ($(shell which pkg-config 2>/dev/null 1>/dev/null || echo 1),1)
+ifeq ($(shell which $(PKG_CONFIG) 2>/dev/null 1>/dev/null || echo 1),1)
 $(error "pkg-config was not found")
 endif
 
@@ -74,15 +83,15 @@ endif
 #
 # We redirect stderr to /dev/null because pkg-config prints an error if support
 # for gnome-config was enabled but gnome-config is not actually installed.
-cflags_for_lib = $(shell pkg-config --silence-errors --cflags $(1) 2>/dev/null)
-ldflags_for_lib = $(shell pkg-config --exists 2>/dev/null $(1) && pkg-config --libs $(1) 2>/dev/null || echo -l$(2))
+cflags_for_lib = $(shell $(PKG_CONFIG) --silence-errors --cflags $(1) 2>/dev/null)
+ldflags_for_lib = $(shell $(PKG_CONFIG) --exists 2>/dev/null $(1) && $(PKG_CONFIG) --libs $(1) 2>/dev/null || echo -l$(2))
 
 # XCB common stuff
 XCB_CFLAGS  := $(call cflags_for_lib, xcb)
 XCB_CFLAGS  += $(call cflags_for_lib, xcb-event)
 XCB_LIBS    := $(call ldflags_for_lib, xcb,xcb)
 XCB_LIBS    += $(call ldflags_for_lib, xcb-event,xcb-event)
-ifeq ($(shell pkg-config --exists xcb-util 2>/dev/null || echo 1),1)
+ifeq ($(shell $(PKG_CONFIG) --exists xcb-util 2>/dev/null || echo 1),1)
 XCB_CFLAGS  += $(call cflags_for_lib, xcb-atom)
 XCB_CFLAGS  += $(call cflags_for_lib, xcb-aux)
 XCB_LIBS    += $(call ldflags_for_lib, xcb-atom,xcb-atom)
@@ -106,14 +115,14 @@ XCB_WM_LIBS   := $(call ldflags_for_lib, xcb-icccm,xcb-icccm)
 XCB_WM_LIBS   += $(call ldflags_for_lib, xcb-xinerama,xcb-xinerama)
 XCB_WM_LIBS   += $(call ldflags_for_lib, xcb-randr,xcb-randr)
 
+# XCB cursor
+XCB_CURSOR_CFLAGS := $(call cflags_for_lib, xcb-cursor)
+XCB_CURSOR_LIBS   := $(call ldflags_for_lib, xcb-cursor,xcb-cursor)
+
 XKB_COMMON_CFLAGS := $(call cflags_for_lib, xkbcommon,xkbcommon)
 XKB_COMMON_LIBS := $(call ldflags_for_lib, xkbcommon,xkbcommon)
 XKB_COMMON_X11_CFLAGS := $(call cflags_for_lib, xkbcommon-x11,xkbcommon-x11)
 XKB_COMMON_X11_LIBS := $(call ldflags_for_lib, xkbcommon-x11,xkbcommon-x11)
-
-# Xcursor
-XCURSOR_CFLAGS := $(call cflags_for_lib, xcb-cursor)
-XCURSOR_LIBS   := $(call ldflags_for_lib, xcb-cursor,xcb-cursor)
 
 # yajl
 YAJL_CFLAGS := $(call cflags_for_lib, yajl)
@@ -125,7 +134,7 @@ LIBEV_LIBS   := $(call ldflags_for_lib, libev,ev)
 
 # libpcre
 PCRE_CFLAGS := $(call cflags_for_lib, libpcre)
-ifeq ($(shell pkg-config --atleast-version=8.10 libpcre 2>/dev/null && echo 1),1)
+ifeq ($(shell $(PKG_CONFIG) --atleast-version=8.10 libpcre 2>/dev/null && echo 1),1)
 I3_CPPFLAGS += -DPCRE_HAS_UCP=1
 endif
 PCRE_LIBS   := $(call ldflags_for_lib, libpcre,pcre)
@@ -138,6 +147,9 @@ LIBSN_LIBS   := $(call ldflags_for_lib, libstartup-notification-1.0,startup-noti
 PANGO_CFLAGS := $(call cflags_for_lib, cairo)
 PANGO_CFLAGS += $(call cflags_for_lib, pangocairo)
 I3_CPPFLAGS  += -DPANGO_SUPPORT=1
+ifeq ($(shell $(PKG_CONFIG) --atleast-version=1.14.4 cairo 2>/dev/null && echo 1),1)
+I3_CPPFLAGS  += -DCAIRO_SUPPORT=1
+endif
 PANGO_LIBS   := $(call ldflags_for_lib, cairo)
 PANGO_LIBS   += $(call ldflags_for_lib, pangocairo)
 
@@ -173,6 +185,10 @@ LIBS += -liconv
 else ifneq ($(UNAME),OpenBSD)
 # Darwin (Mac OS X) and OpenBSD do not have librt
 LIBS += -lrt
+endif
+
+ifeq ($(UNAME),SunOS)
+LIBS += -lsocket -liconv -lgen
 endif
 
 ifneq (,$(filter Linux GNU GNU/%, $(UNAME)))

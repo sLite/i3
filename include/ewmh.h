@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2011 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * ewmh.c: Get/set certain EWMH properties easily.
  *
@@ -37,6 +37,13 @@ void ewmh_update_desktop_names(void);
 void ewmh_update_desktop_viewport(void);
 
 /**
+ * Updates _NET_WM_DESKTOP for all windows.
+ * A request will only be made if the cached value differs from the calculated value.
+ *
+ */
+void ewmh_update_wm_desktop(void);
+
+/**
  * Updates _NET_ACTIVE_WINDOW with the currently focused window.
  *
  * EWMH: The window ID of the currently active window or None if no window has
@@ -44,6 +51,12 @@ void ewmh_update_desktop_viewport(void);
  *
  */
 void ewmh_update_active_window(xcb_window_t window);
+
+/**
+ * Updates _NET_WM_VISIBLE_NAME.
+ *
+ */
+void ewmh_update_visible_name(xcb_window_t window, const char *name);
 
 /**
  * Updates the _NET_CLIENT_LIST hint. Used for window listers.
@@ -61,6 +74,12 @@ void ewmh_update_client_list(xcb_window_t *list, int num_windows);
  *
  */
 void ewmh_update_client_list_stacking(xcb_window_t *stack, int num_windows);
+
+/**
+ * Set or remove _NET_WM_STATE_STICKY on the window.
+ *
+ */
+void ewmh_update_sticky(xcb_window_t window, bool sticky);
 
 /**
  * Set up the EWMH hints on the root window.
@@ -84,3 +103,21 @@ void ewmh_setup_hints(void);
  *
  */
 void ewmh_update_workarea(void);
+
+/**
+ * Returns the workspace container as enumerated by the EWMH desktop model.
+ * Returns NULL if no workspace could be found for the index.
+ *
+ * This is the reverse of ewmh_get_workspace_index.
+ *
+ */
+Con *ewmh_get_workspace_by_index(uint32_t idx);
+
+/**
+ * Returns the EWMH desktop index for the workspace the given container is on.
+ * Returns NET_WM_DESKTOP_NONE if the desktop index cannot be determined.
+ *
+ * This is the reverse of ewmh_get_workspace_by_index.
+ *
+ */
+uint32_t ewmh_get_workspace_index(Con *con);

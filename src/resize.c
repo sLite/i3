@@ -4,14 +4,12 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2011 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * resize.c: Interactive resizing.
  *
  */
 #include "all.h"
-
-extern xcb_connection_t *conn;
 
 /*
  * This is an ugly data structure which we need because there is no standard
@@ -88,7 +86,7 @@ bool resize_find_tiling_participants(Con **current, Con **other, direction_t dir
         }
     }
 
-    DLOG("Found participants: first=%p and second=%p.", first, second);
+    DLOG("Found participants: first=%p and second=%p.\n", first, second);
     *current = first;
     *other = second;
     if (first == NULL || second == NULL) {
@@ -146,7 +144,7 @@ int resize_graphical_handler(Con *first, Con *second, orientation_t orientation,
     }
 
     mask = XCB_CW_BACK_PIXEL;
-    values[0] = config.client.focused.border;
+    values[0] = config.client.focused.border.colorpixel;
 
     mask |= XCB_CW_OVERRIDE_REDIRECT;
     values[1] = 1;

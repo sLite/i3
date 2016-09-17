@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3bar - an xcb-based status- and ws-bar for i3
- * © 2010-2012 Axel Wagner and contributors (see also: LICENSE)
+ * © 2010 Axel Wagner and contributors (see also: LICENSE)
  *
  * child.c: Getting input for the statusline
  *
@@ -75,6 +75,8 @@ static void clear_statusline(struct statusline_head *head, bool free_resources) 
             FREE(first->name);
             FREE(first->instance);
             FREE(first->min_width_str);
+            FREE(first->background);
+            FREE(first->border);
         }
 
         TAILQ_REMOVE(head, first, blocks);
@@ -105,16 +107,16 @@ __attribute__((format(printf, 1, 2))) static void set_statusline_error(const cha
     va_start(args, format);
     (void)vasprintf(&message, format, args);
 
-    struct status_block *err_block = scalloc(sizeof(struct status_block));
+    struct status_block *err_block = scalloc(1, sizeof(struct status_block));
     err_block->full_text = i3string_from_utf8("Error: ");
-    err_block->name = "error";
-    err_block->color = "red";
+    err_block->name = sstrdup("error");
+    err_block->color = sstrdup("red");
     err_block->no_separator = true;
 
-    struct status_block *message_block = scalloc(sizeof(struct status_block));
+    struct status_block *message_block = scalloc(1, sizeof(struct status_block));
     message_block->full_text = i3string_from_utf8(message);
-    message_block->name = "error_message";
-    message_block->color = "red";
+    message_block->name = sstrdup("error_message");
+    message_block->color = sstrdup("red");
     message_block->no_separator = true;
 
     TAILQ_INSERT_HEAD(&statusline_head, err_block, blocks);
@@ -205,8 +207,16 @@ static int stdin_string(void *context, const unsigned char *val, size_t len) {
         sasprintf(&(ctx->block.color), "%.*s", len, val);
         return 1;
     }
+    if (strcasecmp(ctx->last_map_key, "background") == 0) {
+        sasprintf(&(ctx->block.background), "%.*s", len, val);
+        return 1;
+    }
+    if (strcasecmp(ctx->last_map_key, "border") == 0) {
+        sasprintf(&(ctx->block.border), "%.*s", len, val);
+        return 1;
+    }
     if (strcasecmp(ctx->last_map_key, "markup") == 0) {
-        ctx->block.is_markup = (len == strlen("pango") && !strncasecmp((const char *)val, "pango", strlen("pango")));
+        ctx->block.pango_markup = (len == strlen("pango") && !strncasecmp((const char *)val, "pango", strlen("pango")));
         return 1;
     }
     if (strcasecmp(ctx->last_map_key, "align") == 0) {
@@ -220,24 +230,15 @@ static int stdin_string(void *context, const unsigned char *val, size_t len) {
         return 1;
     }
     if (strcasecmp(ctx->last_map_key, "min_width") == 0) {
-        char *copy = (char *)malloc(len + 1);
-        strncpy(copy, (const char *)val, len);
-        copy[len] = 0;
-        ctx->block.min_width_str = copy;
+        sasprintf(&(ctx->block.min_width_str), "%.*s", len, val);
         return 1;
     }
     if (strcasecmp(ctx->last_map_key, "name") == 0) {
-        char *copy = (char *)malloc(len + 1);
-        strncpy(copy, (const char *)val, len);
-        copy[len] = 0;
-        ctx->block.name = copy;
+        sasprintf(&(ctx->block.name), "%.*s", len, val);
         return 1;
     }
     if (strcasecmp(ctx->last_map_key, "instance") == 0) {
-        char *copy = (char *)malloc(len + 1);
-        strncpy(copy, (const char *)val, len);
-        copy[len] = 0;
-        ctx->block.instance = copy;
+        sasprintf(&(ctx->block.instance), "%.*s", len, val);
         return 1;
     }
 
@@ -275,15 +276,15 @@ static int stdin_end_map(void *context) {
 
     if (new_block->min_width_str) {
         i3String *text = i3string_from_utf8(new_block->min_width_str);
-        i3string_set_markup(text, new_block->is_markup);
+        i3string_set_markup(text, new_block->pango_markup);
         new_block->min_width = (uint32_t)predict_text_width(text);
         i3string_free(text);
     }
 
-    i3string_set_markup(new_block->full_text, new_block->is_markup);
+    i3string_set_markup(new_block->full_text, new_block->pango_markup);
 
     if (new_block->short_text != NULL)
-        i3string_set_markup(new_block->short_text, new_block->is_markup);
+        i3string_set_markup(new_block->short_text, new_block->pango_markup);
 
     TAILQ_INSERT_TAIL(&statusline_buffer, new_block, blocks);
     return 1;
@@ -433,7 +434,7 @@ void stdin_io_first_line_cb(struct ev_loop *loop, ev_io *watcher, int revents) {
     } else {
         /* In case of plaintext, we just add a single block and change its
          * full_text pointer later. */
-        struct status_block *new_block = scalloc(sizeof(struct status_block));
+        struct status_block *new_block = scalloc(1, sizeof(struct status_block));
         TAILQ_INSERT_TAIL(&statusline_head, new_block, blocks);
         read_flat_input((char *)buffer, rec);
     }

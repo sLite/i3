@@ -2,13 +2,30 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2011 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * render.c: Renders (determines position/sizes) the layout tree, updating the
  *           various rects. Needs to be pushed to X11 (see x.c) to be visible.
  *
  */
 #pragma once
+
+/* This is used to keep a state to pass around when rendering a con in render_con(). */
+typedef struct render_params {
+    /* A copy of the coordinates of the container which is being rendered. */
+    int x;
+    int y;
+
+    /* The computed height for decorations. */
+    int deco_height;
+    /* Container rect, subtract container border. This is the actually usable space
+     * inside this container for clients. */
+    Rect rect;
+    /* The number of children of the container which is being rendered. */
+    int children;
+    /* A precalculated list of sizes of each child. */
+    int *sizes;
+} render_params;
 
 /**
  * "Renders" the given container (and its children), meaning that all rects are

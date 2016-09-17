@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2012 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * include/data.h: This file defines all data structures used by i3
  *
@@ -46,6 +46,7 @@ typedef struct Con Con;
 typedef struct Match Match;
 typedef struct Assignment Assignment;
 typedef struct Window i3Window;
+typedef struct mark_t mark_t;
 
 /******************************************************************************
  * Helper types
@@ -61,7 +62,7 @@ typedef enum { BS_NORMAL = 0,
                BS_NONE = 1,
                BS_PIXEL = 2 } border_style_t;
 
-/** parameter to specify whether tree_close() and x_window_kill() should kill
+/** parameter to specify whether tree_close_internal() and x_window_kill() should kill
  * only this specific window or the whole X11 client */
 typedef enum { DONT_KILL_WINDOW = 0,
                KILL_WINDOW = 1,
@@ -74,17 +75,8 @@ typedef enum { ADJ_NONE = 0,
                ADJ_UPPER_SCREEN_EDGE = (1 << 2),
                ADJ_LOWER_SCREEN_EDGE = (1 << 4) } adjacent_t;
 
-enum {
-    BIND_NONE = 0,
-    BIND_SHIFT = XCB_MOD_MASK_SHIFT,     /* (1 << 0) */
-    BIND_CONTROL = XCB_MOD_MASK_CONTROL, /* (1 << 2) */
-    BIND_MOD1 = XCB_MOD_MASK_1,          /* (1 << 3) */
-    BIND_MOD2 = XCB_MOD_MASK_2,          /* (1 << 4) */
-    BIND_MOD3 = XCB_MOD_MASK_3,          /* (1 << 5) */
-    BIND_MOD4 = XCB_MOD_MASK_4,          /* (1 << 6) */
-    BIND_MOD5 = XCB_MOD_MASK_5,          /* (1 << 7) */
-    BIND_MODE_SWITCH = (1 << 8)
-};
+typedef enum { MM_REPLACE,
+               MM_ADD } mark_mode_t;
 
 /**
  * Container layouts. See Con::layout.
@@ -106,6 +98,25 @@ typedef enum {
     B_KEYBOARD = 0,
     B_MOUSE = 1
 } input_type_t;
+
+/**
+ * Bitmask for matching XCB_XKB_GROUP_1 to XCB_XKB_GROUP_4.
+ */
+typedef enum {
+    I3_XKB_GROUP_MASK_ANY = 0,
+    I3_XKB_GROUP_MASK_1 = (1 << 0),
+    I3_XKB_GROUP_MASK_2 = (1 << 1),
+    I3_XKB_GROUP_MASK_3 = (1 << 2),
+    I3_XKB_GROUP_MASK_4 = (1 << 3)
+} i3_xkb_group_mask_t;
+
+/**
+ * The lower 16 bits contain a xcb_key_but_mask_t, the higher 16 bits contain
+ * an i3_xkb_group_mask_t. This type is necessary for the fallback logic to
+ * work when handling XKB groups (see ticket #1775) and makes the code which
+ * locates keybindings upon KeyPress/KeyRelease events simpler.
+ */
+typedef uint32_t i3_event_state_mask_t;
 
 /**
  * Mouse pointer warping modes.
@@ -168,7 +179,7 @@ struct deco_render_params {
     struct width_height con_rect;
     struct width_height con_window_rect;
     Rect con_deco_rect;
-    uint32_t background;
+    color_t background;
     layout_t parent_layout;
     bool con_is_leaf;
 };
@@ -256,6 +267,10 @@ struct Binding {
     } release;
 
     /** If this is true for a mouse binding, the binding should be executed
+     * when the button is pressed over the window border. */
+    bool border;
+
+    /** If this is true for a mouse binding, the binding should be executed
      * when the button is pressed over any part of the window, not just the
      * title bar (default). */
     bool whole_window;
@@ -265,8 +280,10 @@ struct Binding {
     /** Keycode to bind */
     uint32_t keycode;
 
-    /** Bitmask consisting of BIND_MOD_1, BIND_MODE_SWITCH, … */
-    uint32_t mods;
+    /** Bitmask which is applied against event->state for KeyPress and
+     * KeyRelease events to determine whether this binding applies to the
+     * current state. */
+    i3_event_state_mask_t event_state_mask;
 
     /** Symbol the user specified in configfile, if any. This needs to be
      * stored with the binding to be able to re-convert it into a keycode
@@ -378,6 +395,12 @@ struct Window {
      * default will be 'accepts focus'. */
     bool doesnt_accept_focus;
 
+    /** The _NET_WM_WINDOW_TYPE for this window. */
+    xcb_atom_t window_type;
+
+    /** The _NET_WM_DESKTOP for this window. */
+    uint32_t wm_desktop;
+
     /** Whether the window says it is a dock window */
     enum { W_NODOCK = 0,
            W_DOCK_TOP = 1,
@@ -391,6 +414,18 @@ struct Window {
 
     /** Depth of the window */
     uint16_t depth;
+
+    /* the wanted size of the window, used in combination with size
+     * increments (see below). */
+    int base_width;
+    int base_height;
+
+    /* minimum increment size specified for the window (in pixels) */
+    int width_increment;
+    int height_increment;
+
+    /* aspect ratio from WM_NORMAL_HINTS (MPlayer uses this for example) */
+    double aspect_ratio;
 };
 
 /**
@@ -402,12 +437,17 @@ struct Window {
  *
  */
 struct Match {
+    /* Set if a criterion was specified incorrectly. */
+    char *error;
+
     struct regex *title;
     struct regex *application;
     struct regex *class;
     struct regex *instance;
     struct regex *mark;
     struct regex *window_role;
+    struct regex *workspace;
+    xcb_atom_t window_type;
     enum {
         U_DONTCHECK = -1,
         U_LATEST = 0,
@@ -460,6 +500,7 @@ struct Assignment {
      *
      * A_COMMAND = run the specified command for the matching window
      * A_TO_WORKSPACE = assign the matching window to the specified workspace
+     * A_NO_FOCUS = don't focus matched window when it is managed
      *
      * While the type is a bitmask, only one value can be set at a time. It is
      * a bitmask to allow filtering for multiple types, for example in the
@@ -469,7 +510,8 @@ struct Assignment {
     enum {
         A_ANY = 0,
         A_COMMAND = (1 << 0),
-        A_TO_WORKSPACE = (1 << 1)
+        A_TO_WORKSPACE = (1 << 1),
+        A_NO_FOCUS = (1 << 2)
     } type;
 
     /** the criteria to check if a window matches */
@@ -489,6 +531,12 @@ typedef enum { CF_NONE = 0,
                CF_OUTPUT = 1,
                CF_GLOBAL = 2 } fullscreen_mode_t;
 
+struct mark_t {
+    char *name;
+
+    TAILQ_ENTRY(mark_t) marks;
+};
+
 /**
  * A 'Con' represents everything from the X11 root window down to a single X11 window.
  *
@@ -507,11 +555,10 @@ struct Con {
      * change. */
     uint8_t ignore_unmap;
 
-    /* ids/pixmap/graphics context for the frame window */
+    /* The surface used for the frame window. */
+    surface_t frame;
+    surface_t frame_buffer;
     bool pixmap_recreated;
-    xcb_window_t frame;
-    xcb_pixmap_t pixmap;
-    xcb_gcontext_t pm_gc;
 
     enum {
         CT_ROOT = 0,
@@ -528,38 +575,38 @@ struct Con {
 
     struct Con *parent;
 
+    /* The position and size for this con. These coordinates are absolute. Note
+     * that the rect of a container does not include the decoration. */
     struct Rect rect;
+    /* The position and size of the actual client window. These coordinates are
+     * relative to the container's rect. */
     struct Rect window_rect;
+    /* The position and size of the container's decoration. These coordinates
+     * are relative to the container's parent's rect. */
     struct Rect deco_rect;
     /** the geometry this window requested when getting mapped */
     struct Rect geometry;
 
     char *name;
 
+    /** The format with which the window's name should be displayed. */
+    char *title_format;
+
     /* a sticky-group is an identifier which bundles several containers to a
      * group. The contents are shared between all of them, that is they are
      * displayed on whichever of the containers is currently visible */
     char *sticky_group;
 
-    /* user-definable mark to jump to this container later */
-    char *mark;
+    /* user-definable marks to jump to this container later */
+    TAILQ_HEAD(marks_head, mark_t) marks_head;
+    /* cached to decide whether a redraw is needed */
+    bool mark_changed;
 
     double percent;
-
-    /* aspect ratio from WM_NORMAL_HINTS (MPlayer uses this for example) */
-    double aspect_ratio;
-    /* the wanted size of the window, used in combination with size
-     * increments (see below). */
-    int base_width;
-    int base_height;
 
     /* the x11 border pixel attribute */
     int border_width;
     int current_border_width;
-
-    /* minimum increment size specified for the window (in pixels) */
-    int width_increment;
-    int height_increment;
 
     struct Window *window;
 
@@ -578,6 +625,12 @@ struct Con {
     TAILQ_HEAD(swallow_head, Match) swallow_head;
 
     fullscreen_mode_t fullscreen_mode;
+
+    /* Whether this window should stick to the glass. This corresponds to
+     * the _NET_WM_STATE_STICKY atom and will only be respected if the
+     * window is floating. */
+    bool sticky;
+
     /* layout is the layout of this container: one of split[v|h], stacked or
      * tabbed. Special containers in the tree (above workspaces) have special
      * layouts like dockarea or output.

@@ -17,6 +17,7 @@
 # Tests resizing tiling containers
 use i3test;
 
+my ($left, $right);
 my $tmp = fresh_workspace;
 
 cmd 'split v';
@@ -84,8 +85,8 @@ cmp_float($nodes->[1]->{percent}, 0.75, 'bottom window got 75%');
 
 $tmp = fresh_workspace;
 
-my $left = open_window;
-my $right = open_window;
+$left = open_window;
+$right = open_window;
 
 cmd 'split v';
 
@@ -140,6 +141,21 @@ cmp_float($nodes->[1]->{percent}, 0.166666666666667, 'second window got 16%');
 cmp_float($nodes->[2]->{percent}, 0.166666666666667, 'third window got 16%');
 cmp_float($nodes->[3]->{percent}, 0.50, 'fourth window got 50%');
 
+################################################################################
+# Check that the resize grow/shrink width/height syntax works if a nested split
+# was set on the container, but no sibling has been opened yet. See #2015.
+################################################################################
+
+$tmp = fresh_workspace;
+$left = open_window;
+$right = open_window;
+
+cmd 'split h';
+cmd 'resize grow width 10px or 25 ppt';
+
+($nodes, $focus) = get_ws_content($tmp);
+cmp_float($nodes->[0]->{percent}, 0.25, 'left window got 25%');
+cmp_float($nodes->[1]->{percent}, 0.75, 'right window got 75%');
 
 ############################################################
 # checks that resizing floating windows works
@@ -261,8 +277,8 @@ cmp_ok($content[0]->{rect}->{width}, '==', $oldrect->{width}, 'width the same as
 
 $tmp = fresh_workspace;
 
-my $left = open_floating_window;
-my $right = open_floating_window;
+$left = open_floating_window;
+$right = open_floating_window;
 
 sub get_floating_rect {
     my ($window_id) = @_;

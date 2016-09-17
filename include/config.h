@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2012 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * include/config.h: Contains all structs/variables for the configurable
  * part of i3 as well as functions handling the configuration file (calling
@@ -50,10 +50,11 @@ struct context {
  *
  */
 struct Colortriple {
-    uint32_t border;
-    uint32_t background;
-    uint32_t text;
-    uint32_t indicator;
+    color_t border;
+    color_t background;
+    color_t text;
+    color_t indicator;
+    color_t child_border;
 };
 
 /**
@@ -77,6 +78,7 @@ struct Variable {
  */
 struct Mode {
     char *name;
+    bool pango_markup;
     struct bindings_head *bindings;
 
     SLIST_ENTRY(Mode) modes;
@@ -92,7 +94,7 @@ struct Config {
     i3Font font;
 
     char *ipc_socket_path;
-    const char *restart_state_path;
+    char *restart_state_path;
 
     layout_t default_layout;
     int container_stack_limit;
@@ -167,6 +169,22 @@ struct Config {
      * flag can be delayed using an urgency timer. */
     float workspace_urgency_timer;
 
+    /** Behavior when a window sends a NET_ACTIVE_WINDOW message. */
+    enum {
+        /* Focus if the target workspace is visible, set urgency hint otherwise. */
+        FOWA_SMART,
+        /* Always set the urgency hint. */
+        FOWA_URGENT,
+        /* Always focus the window. */
+        FOWA_FOCUS,
+        /* Ignore the request (no focus, no urgency hint). */
+        FOWA_NONE
+    } focus_on_window_activation;
+
+    /** Specifies whether or not marks should be displayed in the window
+     * decoration. Marks starting with a "_" will be ignored either way. */
+    bool show_marks;
+
     /** The default border style for new windows. */
     border_style_t default_border;
 
@@ -185,7 +203,7 @@ struct Config {
 
     /* Color codes are stored here */
     struct config_client {
-        uint32_t background;
+        color_t background;
         struct Colortriple focused;
         struct Colortriple focused_inactive;
         struct Colortriple unfocused;
@@ -231,9 +249,13 @@ struct Barconfig {
      * simplicity (since we store just strings). */
     char **outputs;
 
-    /** Output on which the tray should be shown. The special value of 'no'
-     * disables the tray (it’s enabled by default). */
-    char *tray_output;
+    /* List of outputs on which the tray is allowed to be shown, in order.
+     * The special value "none" disables it (per default, it will be shown) and
+     * the special value "primary" enabled it on the primary output. */
+    TAILQ_HEAD(tray_outputs_head, tray_output_t) tray_outputs;
+
+    /* Padding around the tray icons. */
+    int tray_padding;
 
     /** Path to the i3 IPC socket. This option is discouraged since programs
      * can find out the path by looking for the I3_SOCKET_PATH property on the
@@ -261,13 +283,7 @@ struct Barconfig {
         M_MOD5 = 7
     } modifier;
 
-    /** Command that should be run when mouse wheel up button is pressed over
-     * i3bar to override the default behavior. */
-    char *wheel_up_cmd;
-
-    /** Command that should be run when mouse wheel down button is pressed over
-     * i3bar to override the default behavior. */
-    char *wheel_down_cmd;
+    TAILQ_HEAD(bar_bindings_head, Barbinding) bar_bindings;
 
     /** Bar position (bottom by default). */
     enum { P_BOTTOM = 0,
@@ -309,6 +325,10 @@ struct Barconfig {
         char *statusline;
         char *separator;
 
+        char *focused_background;
+        char *focused_statusline;
+        char *focused_separator;
+
         char *focused_workspace_border;
         char *focused_workspace_bg;
         char *focused_workspace_text;
@@ -324,9 +344,34 @@ struct Barconfig {
         char *urgent_workspace_border;
         char *urgent_workspace_bg;
         char *urgent_workspace_text;
+
+        char *binding_mode_border;
+        char *binding_mode_bg;
+        char *binding_mode_text;
     } colors;
 
     TAILQ_ENTRY(Barconfig) configs;
+};
+
+/**
+ * Defines a mouse command to be executed instead of the default behavior when
+ * clicking on the non-statusline part of i3bar.
+ *
+ */
+struct Barbinding {
+    /** The button to be used (e.g., 1 for "button1"). */
+    int input_code;
+
+    /** The command which is to be executed for this button. */
+    char *command;
+
+    TAILQ_ENTRY(Barbinding) bindings;
+};
+
+struct tray_output_t {
+    char *output;
+
+    TAILQ_ENTRY(tray_output_t) tray_outputs;
 };
 
 /**

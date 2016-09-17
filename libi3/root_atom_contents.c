@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2011 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  */
 #include <stdio.h>
@@ -31,14 +31,15 @@
 char *root_atom_contents(const char *atomname, xcb_connection_t *provided_conn, int screen) {
     xcb_intern_atom_cookie_t atom_cookie;
     xcb_intern_atom_reply_t *atom_reply;
-    char *content;
+    char *content = NULL;
     size_t content_max_words = 256;
     xcb_connection_t *conn = provided_conn;
 
     if (provided_conn == NULL &&
         ((conn = xcb_connect(NULL, &screen)) == NULL ||
-         xcb_connection_has_error(conn)))
+         xcb_connection_has_error(conn))) {
         return NULL;
+    }
 
     atom_cookie = xcb_intern_atom(conn, 0, strlen(atomname), atomname);
 
@@ -46,8 +47,9 @@ char *root_atom_contents(const char *atomname, xcb_connection_t *provided_conn, 
     xcb_window_t root = root_screen->root;
 
     atom_reply = xcb_intern_atom_reply(conn, atom_cookie, NULL);
-    if (atom_reply == NULL)
-        return NULL;
+    if (atom_reply == NULL) {
+        goto out_conn;
+    }
 
     xcb_get_property_cookie_t prop_cookie;
     xcb_get_property_reply_t *prop_reply;
@@ -55,8 +57,7 @@ char *root_atom_contents(const char *atomname, xcb_connection_t *provided_conn, 
                                              XCB_GET_PROPERTY_TYPE_ANY, 0, content_max_words);
     prop_reply = xcb_get_property_reply(conn, prop_cookie, NULL);
     if (prop_reply == NULL) {
-        free(atom_reply);
-        return NULL;
+        goto out_atom;
     }
     if (xcb_get_property_value_length(prop_reply) > 0 && prop_reply->bytes_after > 0) {
         /* We received an incomplete value. Ask again but with a properly
@@ -68,34 +69,27 @@ char *root_atom_contents(const char *atomname, xcb_connection_t *provided_conn, 
                                                  XCB_GET_PROPERTY_TYPE_ANY, 0, content_max_words);
         prop_reply = xcb_get_property_reply(conn, prop_cookie, NULL);
         if (prop_reply == NULL) {
-            free(atom_reply);
-            return NULL;
+            goto out_atom;
         }
     }
     if (xcb_get_property_value_length(prop_reply) == 0) {
-        free(atom_reply);
-        free(prop_reply);
-        return NULL;
+        goto out;
     }
     if (prop_reply->type == XCB_ATOM_CARDINAL) {
         /* We treat a CARDINAL as a >= 32-bit unsigned int. The only CARDINAL
          * we query is I3_PID, which is 32-bit. */
-        if (asprintf(&content, "%u", *((unsigned int *)xcb_get_property_value(prop_reply))) == -1) {
-            free(atom_reply);
-            free(prop_reply);
-            return NULL;
-        }
+        sasprintf(&content, "%u", *((unsigned int *)xcb_get_property_value(prop_reply)));
     } else {
-        if (asprintf(&content, "%.*s", xcb_get_property_value_length(prop_reply),
-                     (char *)xcb_get_property_value(prop_reply)) == -1) {
-            free(atom_reply);
-            free(prop_reply);
-            return NULL;
-        }
+        sasprintf(&content, "%.*s", xcb_get_property_value_length(prop_reply),
+                  (char *)xcb_get_property_value(prop_reply));
     }
+
+out:
+    free(prop_reply);
+out_atom:
+    free(atom_reply);
+out_conn:
     if (provided_conn == NULL)
         xcb_disconnect(conn);
-    free(atom_reply);
-    free(prop_reply);
     return content;
 }

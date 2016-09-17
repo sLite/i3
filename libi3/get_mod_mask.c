@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2011 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  */
 #include <stdint.h>
@@ -11,8 +11,6 @@
 #include <xcb/xcb_keysyms.h>
 
 #include "libi3.h"
-
-extern xcb_connection_t *conn;
 
 /*
  * All-in-one function which returns the modifier mask (XCB_MOD_MASK_*) for the

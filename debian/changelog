@@ -1,8 +1,49 @@
+i3-wm (4.12-1) unstable; urgency=medium
+
+  * New upstream release.
+  * Move to debhelper 9
+  * Bump Standards-Version to 3.9.7 (no changes necessary)
+  * debian/watch: verify signature, use https
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Sun, 06 Mar 2016 14:20:38 +0100
+
+i3-wm (4.11-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Wed, 30 Sep 2015 08:50:13 +0200
+
+i3-wm (4.10.4-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Tue, 08 Sep 2015 09:15:45 +0200
+
+i3-wm (4.10.3-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Thu, 30 Jul 2015 21:51:27 +0200
+
+i3-wm (4.10.2-2) unstable; urgency=medium
+
+  * New upstream release.
+  * experimental to unstable because i3-wm 4.10.2-1 was only in experimental
+    due to the freeze.
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Fri, 01 May 2015 20:21:18 +0200
+
+i3-wm (4.10.2-1) experimental; urgency=medium
+
+  * New upstream release.
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Thu, 16 Apr 2015 09:02:53 +0200
+
 i3-wm (4.10.1-1) experimental; urgency=medium
 
-  * NOT YET RELEASED.
+  * New upstream release.
 
- -- Michael Stapelberg <stapelberg@debian.org>  Sun, 29 Mar 2015 18:08:13 +0200
+ -- Michael Stapelberg <stapelberg@debian.org>  Sun, 29 Mar 2015 18:54:07 +0200
 
 i3-wm (4.10-1) experimental; urgency=medium
 

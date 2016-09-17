@@ -4,7 +4,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2012 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * load_layout.c: Restore (parts of) the layout, for example after an inplace
  *                restart.
@@ -28,7 +28,9 @@ static bool parsing_deco_rect;
 static bool parsing_window_rect;
 static bool parsing_geometry;
 static bool parsing_focus;
+static bool parsing_marks;
 struct Match *current_swallow;
+static bool swallow_is_empty;
 
 /* This list is used for reordering the focus stack after parsing the 'focus'
  * array. */
@@ -47,6 +49,7 @@ static int json_start_map(void *ctx) {
         current_swallow = smalloc(sizeof(Match));
         match_init(current_swallow);
         TAILQ_INSERT_TAIL(&(json_node->swallow_head), current_swallow, matches);
+        swallow_is_empty = true;
     } else {
         if (!parsing_rect && !parsing_deco_rect && !parsing_window_rect && !parsing_geometry) {
             if (last_key && strcasecmp(last_key, "floating_nodes") == 0) {
@@ -84,6 +87,7 @@ static int json_end_map(void *ctx) {
                 Match *match = TAILQ_FIRST(&(json_node->swallow_head));
                 TAILQ_REMOVE(&(json_node->swallow_head), match, matches);
                 match_free(match);
+                free(match);
             }
         }
 
@@ -116,11 +120,45 @@ static int json_end_map(void *ctx) {
             json_node->num = ws_name_to_number(json_node->name);
         }
 
+        // When appending JSON layout files that only contain the workspace
+        // _contents_, we might not have an upfront signal that the
+        // container we’re currently parsing is a floating container (like
+        // the “floating_nodes” key of the workspace container itself).
+        // That’s why we make sure the con is attached at the right place
+        // in the hierarchy in case it’s floating.
+        if (json_node->type == CT_FLOATING_CON) {
+            DLOG("fixing parent which currently is %p / %s\n", json_node->parent, json_node->parent->name);
+            json_node->parent = con_get_workspace(json_node->parent);
+
+            // Also set a size if none was supplied, otherwise the placeholder
+            // window cannot be created as X11 requests with width=0 or
+            // height=0 are invalid.
+            const Rect zero = {0, 0, 0, 0};
+            if (memcmp(&(json_node->rect), &zero, sizeof(Rect)) == 0) {
+                DLOG("Geometry not set, combining children\n");
+                Con *child;
+                TAILQ_FOREACH(child, &(json_node->nodes_head), nodes) {
+                    DLOG("child geometry: %d x %d\n", child->geometry.width, child->geometry.height);
+                    json_node->rect.width += child->geometry.width;
+                    json_node->rect.height = max(json_node->rect.height, child->geometry.height);
+                }
+            }
+
+            floating_check_size(json_node);
+        }
+
         LOG("attaching\n");
         con_attach(json_node, json_node->parent, true);
         LOG("Creating window\n");
         x_con_init(json_node, json_node->depth);
         json_node = json_node->parent;
+    }
+
+    if (parsing_swallows && swallow_is_empty) {
+        /* We parsed an empty swallow definition. This is an invalid layout
+         * definition, hence we reject it. */
+        ELOG("Layout file is invalid: found an empty swallow definition.\n");
+        return 0;
     }
 
     parsing_rect = false;
@@ -132,12 +170,16 @@ static int json_end_map(void *ctx) {
 
 static int json_end_array(void *ctx) {
     LOG("end of array\n");
-    if (!parsing_swallows && !parsing_focus) {
+    if (!parsing_swallows && !parsing_focus && !parsing_marks) {
         con_fix_percent(json_node);
     }
     if (parsing_swallows) {
         parsing_swallows = false;
     }
+    if (parsing_marks) {
+        parsing_marks = false;
+    }
+
     if (parsing_focus) {
         /* Clear the list of focus mappings */
         struct focus_mapping *mapping;
@@ -167,7 +209,7 @@ static int json_end_array(void *ctx) {
 static int json_key(void *ctx, const unsigned char *val, size_t len) {
     LOG("key: %.*s\n", (int)len, val);
     FREE(last_key);
-    last_key = scalloc((len + 1) * sizeof(char));
+    last_key = scalloc(len + 1, 1);
     memcpy(last_key, val, len);
     if (strcasecmp(last_key, "swallows") == 0)
         parsing_swallows = true;
@@ -187,6 +229,9 @@ static int json_key(void *ctx, const unsigned char *val, size_t len) {
     if (strcasecmp(last_key, "focus") == 0)
         parsing_focus = true;
 
+    if (strcasecmp(last_key, "marks") == 0)
+        parsing_marks = true;
+
     return 1;
 }
 
@@ -197,22 +242,34 @@ static int json_string(void *ctx, const unsigned char *val, size_t len) {
         sasprintf(&sval, "%.*s", len, val);
         if (strcasecmp(last_key, "class") == 0) {
             current_swallow->class = regex_new(sval);
+            swallow_is_empty = false;
         } else if (strcasecmp(last_key, "instance") == 0) {
             current_swallow->instance = regex_new(sval);
+            swallow_is_empty = false;
         } else if (strcasecmp(last_key, "window_role") == 0) {
             current_swallow->window_role = regex_new(sval);
+            swallow_is_empty = false;
         } else if (strcasecmp(last_key, "title") == 0) {
             current_swallow->title = regex_new(sval);
+            swallow_is_empty = false;
         } else {
             ELOG("swallow key %s unknown\n", last_key);
         }
         free(sval);
+    } else if (parsing_marks) {
+        char *mark;
+        sasprintf(&mark, "%.*s", (int)len, val);
+
+        con_mark(json_node, mark, MM_ADD);
     } else {
         if (strcasecmp(last_key, "name") == 0) {
-            json_node->name = scalloc((len + 1) * sizeof(char));
+            json_node->name = scalloc(len + 1, 1);
             memcpy(json_node->name, val, len);
+        } else if (strcasecmp(last_key, "title_format") == 0) {
+            json_node->title_format = scalloc(len + 1, 1);
+            memcpy(json_node->title_format, val, len);
         } else if (strcasecmp(last_key, "sticky_group") == 0) {
-            json_node->sticky_group = scalloc((len + 1) * sizeof(char));
+            json_node->sticky_group = scalloc(len + 1, 1);
             memcpy(json_node->sticky_group, val, len);
             LOG("sticky_group of this container is %s\n", json_node->sticky_group);
         } else if (strcasecmp(last_key, "orientation") == 0) {
@@ -309,9 +366,12 @@ static int json_string(void *ctx, const unsigned char *val, size_t len) {
                 LOG("Unhandled \"last_splitlayout\": %s\n", buf);
             free(buf);
         } else if (strcasecmp(last_key, "mark") == 0) {
+            DLOG("Found deprecated key \"mark\".\n");
+
             char *buf = NULL;
             sasprintf(&buf, "%.*s", (int)len, val);
-            json_node->mark = buf;
+
+            con_mark(json_node, buf, MM_REPLACE);
         } else if (strcasecmp(last_key, "floating") == 0) {
             char *buf = NULL;
             sasprintf(&buf, "%.*s", (int)len, val);
@@ -361,7 +421,7 @@ static int json_int(void *ctx, long long val) {
         json_node->old_id = val;
 
     if (parsing_focus) {
-        struct focus_mapping *focus_mapping = scalloc(sizeof(struct focus_mapping));
+        struct focus_mapping *focus_mapping = scalloc(1, sizeof(struct focus_mapping));
         focus_mapping->old_id = val;
         TAILQ_INSERT_TAIL(&focus_mappings, focus_mapping, focus_mappings);
     }
@@ -390,12 +450,15 @@ static int json_int(void *ctx, long long val) {
     if (parsing_swallows) {
         if (strcasecmp(last_key, "id") == 0) {
             current_swallow->id = val;
+            swallow_is_empty = false;
         }
         if (strcasecmp(last_key, "dock") == 0) {
             current_swallow->dock = val;
+            swallow_is_empty = false;
         }
         if (strcasecmp(last_key, "insert_where") == 0) {
             current_swallow->insert_where = val;
+            swallow_is_empty = false;
         }
     }
 
@@ -408,9 +471,14 @@ static int json_bool(void *ctx, int val) {
         to_focus = json_node;
     }
 
+    if (strcasecmp(last_key, "sticky") == 0)
+        json_node->sticky = val;
+
     if (parsing_swallows) {
-        if (strcasecmp(last_key, "restart_mode") == 0)
+        if (strcasecmp(last_key, "restart_mode") == 0) {
             current_swallow->restart_mode = val;
+            swallow_is_empty = false;
+        }
     }
 
     return 1;
@@ -555,6 +623,7 @@ void tree_append_json(Con *con, const char *filename, char **errormsg) {
     parsing_window_rect = false;
     parsing_geometry = false;
     parsing_focus = false;
+    parsing_marks = false;
     setlocale(LC_NUMERIC, "C");
     stat = yajl_parse(hand, (const unsigned char *)buf, n);
     if (stat != yajl_status_ok) {
@@ -572,8 +641,11 @@ void tree_append_json(Con *con, const char *filename, char **errormsg) {
 
     setlocale(LC_NUMERIC, "");
     yajl_complete_parse(hand);
+    yajl_free(hand);
+    yajl_gen_free(g);
 
     fclose(f);
+    free(buf);
     if (to_focus)
         con_focus(to_focus);
 }

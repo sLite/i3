@@ -2,12 +2,18 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2011 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * window.c: Updates window attributes (X11 hints/properties).
  *
  */
 #pragma once
+
+/**
+ * Frees an i3Window and all its members.
+ *
+ */
+void window_free(i3Window *win);
 
 /**
  * Updates the WM_CLASS (consisting of the class and instance) for the
@@ -55,6 +61,12 @@ void window_update_strut_partial(i3Window *win, xcb_get_property_reply_t *prop);
  *
  */
 void window_update_role(i3Window *win, xcb_get_property_reply_t *prop, bool before_mgmt);
+
+/**
+ * Updates the _NET_WM_WINDOW_TYPE property.
+ *
+ */
+void window_update_type(i3Window *window, xcb_get_property_reply_t *reply);
 
 /**
  * Updates the WM_HINTS (we only care about the input focus handling part).

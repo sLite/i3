@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2012 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * i3-dump-log/main.c: Dumps the i3 SHM log to stdout.
  *
@@ -138,6 +138,7 @@ int main(int argc, char *argv[]) {
     if (verbose)
         printf("next_write = %d, last_wrap = %d, logbuffer_size = %d, shmname = %s\n",
                header->offset_next_write, header->offset_last_wrap, header->size, shmname);
+    free(shmname);
     walk = logbuffer + header->offset_next_write;
 
     /* We first need to print old content in case there was at least one

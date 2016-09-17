@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2011 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * workspace.c: Modifying workspaces, accessing them, moving containers to
  *              workspaces.
@@ -13,6 +13,14 @@
 #include "data.h"
 #include "tree.h"
 #include "randr.h"
+
+/* We use NET_WM_DESKTOP_NONE for cases where we cannot determine the EWMH
+ * desktop index for a window. We cannot use a negative value like -1 since we
+ * need to use uint32_t as we actually need the full range of it. This is
+ * technically dangerous, but it's safe to assume that we will never have more
+ * than 4294967279 workspaces open at a time. */
+#define NET_WM_DESKTOP_NONE 0xFFFFFFF0
+#define NET_WM_DESKTOP_ALL 0xFFFFFFFF
 
 /**
  * Returns a pointer to the workspace with the given number (starting at 0),
@@ -25,7 +33,16 @@
  */
 Con *workspace_get(const char *num, bool *created);
 
-/*
+/**
+ * Extracts workspace names from keybindings (e.g. “web” from “bindsym $mod+1
+ * workspace web”), so that when an output needs a workspace, i3 can start with
+ * the first configured one. Needs to be called before reorder_bindings() so
+ * that the config-file order is used, not the i3-internal order.
+ *
+ */
+void extract_workspace_names_from_bindings(void);
+
+/**
  * Returns a pointer to a new workspace in the given output. The workspace
  * is created attached to the tree hierarchy through the given content
  * container.
@@ -185,4 +202,4 @@ Con *workspace_encapsulate(Con *ws);
  * This returns true if and only if moving the workspace was successful.
  *
  */
-bool workspace_move_to_output(Con *ws, char *output);
+bool workspace_move_to_output(Con *ws, const char *output);
