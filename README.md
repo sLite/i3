@@ -28,6 +28,8 @@ No special settings needed.
 
 If you want kmix, kcalc and those other small tools floating, those are settings you still have to do with your i3 config.
 
+You can check https://github.com/sLite/i3-config for an example config and instructions to set up KDE integration.
+
 ### Credits
 
 * Michael Stapelberg for this awesome project, and all the contributors for their work.
