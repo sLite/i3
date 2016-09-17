@@ -1,2 +1,3 @@
 #include "atoms_NET_SUPPORTED.xmacro"
 #include "atoms_rest.xmacro"
+#include "atoms_KDE.xmacro"
