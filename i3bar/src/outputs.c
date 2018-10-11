@@ -7,6 +7,8 @@
  * outputs.c: Maintaining the outputs list
  *
  */
+#include "common.h"
+
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -14,8 +16,6 @@
 #include <i3/ipc.h>
 #include <yajl/yajl_parse.h>
 #include <yajl/yajl_version.h>
-
-#include "common.h"
 
 /* A datatype to pass through the callbacks to save the state */
 struct outputs_json_params {
@@ -173,6 +173,12 @@ static int outputs_start_map_cb(void *params_) {
     return 1;
 }
 
+static void clear_output(i3_output *output) {
+    FREE(output->name);
+    FREE(output->workspaces);
+    FREE(output->trayclients);
+}
+
 /*
  * We hit the end of a map (rect or a new output)
  *
@@ -189,18 +195,17 @@ static int outputs_end_map_cb(void *params_) {
     if (config.num_outputs > 0) {
         bool handle_output = false;
         for (int c = 0; c < config.num_outputs; c++) {
-            if (strcasecmp(params->outputs_walk->name, config.outputs[c]) != 0)
-                continue;
-
-            handle_output = true;
-            break;
+            if (strcasecmp(params->outputs_walk->name, config.outputs[c]) == 0 ||
+                (strcasecmp(config.outputs[c], "primary") == 0 &&
+                 params->outputs_walk->primary)) {
+                handle_output = true;
+                break;
+            }
         }
         if (!handle_output) {
             DLOG("Ignoring output \"%s\", not configured to handle it.\n",
                  params->outputs_walk->name);
-            FREE(params->outputs_walk->name);
-            FREE(params->outputs_walk->workspaces);
-            FREE(params->outputs_walk->trayclients);
+            clear_output(params->outputs_walk);
             FREE(params->outputs_walk);
             FREE(params->cur_key);
             return 1;
@@ -216,6 +221,9 @@ static int outputs_end_map_cb(void *params_) {
         target->primary = params->outputs_walk->primary;
         target->ws = params->outputs_walk->ws;
         target->rect = params->outputs_walk->rect;
+
+        clear_output(params->outputs_walk);
+        FREE(params->outputs_walk);
     }
     return 1;
 }
@@ -259,7 +267,6 @@ void init_outputs(void) {
  */
 void parse_outputs_json(char *json) {
     struct outputs_json_params params;
-
     params.outputs_walk = NULL;
     params.cur_key = NULL;
     params.json = json;
@@ -271,7 +278,7 @@ void parse_outputs_json(char *json) {
 
     state = yajl_parse(handle, (const unsigned char *)json, strlen(json));
 
-    /* FIXME: Propper errorhandling for JSON-parsing */
+    /* FIXME: Proper errorhandling for JSON-parsing */
     switch (state) {
         case yajl_status_ok:
             break;
@@ -283,6 +290,27 @@ void parse_outputs_json(char *json) {
     }
 
     yajl_free(handle);
+}
+
+/*
+ * free() all outputs data structures.
+ *
+ */
+void free_outputs(void) {
+    free_workspaces();
+
+    i3_output *outputs_walk;
+    if (outputs == NULL) {
+        return;
+    }
+    SLIST_FOREACH(outputs_walk, outputs, slist) {
+        destroy_window(outputs_walk);
+        if (outputs_walk->trayclients != NULL && !TAILQ_EMPTY(outputs_walk->trayclients)) {
+            FREE_TAILQ(outputs_walk->trayclients, trayclient);
+        }
+        clear_output(outputs_walk);
+    }
+    FREE_SLIST(outputs, i3_output);
 }
 
 /*

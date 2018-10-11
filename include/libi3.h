@@ -10,6 +10,8 @@
  */
 #pragma once
 
+#include <config.h>
+
 #include <stdbool.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -17,14 +19,20 @@
 #include <xcb/xproto.h>
 #include <xcb/xcb_keysyms.h>
 
-#if PANGO_SUPPORT
 #include <pango/pango.h>
-#endif
-#ifdef CAIRO_SUPPORT
 #include <cairo/cairo-xcb.h>
-#endif
 
 #define DEFAULT_DIR_MODE (S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH)
+
+/** Mouse buttons */
+#define XCB_BUTTON_CLICK_LEFT XCB_BUTTON_INDEX_1
+#define XCB_BUTTON_CLICK_MIDDLE XCB_BUTTON_INDEX_2
+#define XCB_BUTTON_CLICK_RIGHT XCB_BUTTON_INDEX_3
+#define XCB_BUTTON_SCROLL_UP XCB_BUTTON_INDEX_4
+#define XCB_BUTTON_SCROLL_DOWN XCB_BUTTON_INDEX_5
+/* xcb doesn't define constants for these. */
+#define XCB_BUTTON_SCROLL_LEFT 6
+#define XCB_BUTTON_SCROLL_RIGHT 7
 
 /**
  * XCB connection and root screen
@@ -73,10 +81,8 @@ struct Font {
             xcb_charinfo_t *table;
         } xcb;
 
-#if PANGO_SUPPORT
         /** The pango font description */
         PangoFontDescription *pango_desc;
-#endif
     } specific;
 };
 
@@ -95,7 +101,7 @@ void errorlog(char *fmt, ...)
 #if !defined(DLOG)
 void debuglog(char *fmt, ...)
     __attribute__((format(printf, 1, 2)));
-#define DLOG(fmt, ...) debuglog("%s:%s:%d - " fmt, I3__FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__)
+#define DLOG(fmt, ...) debuglog("%s:%s:%d - " fmt, STRIPPED__FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__)
 #endif
 
 /**
@@ -464,11 +470,24 @@ char *get_process_filename(const char *prefix);
 /**
  * This function returns the absolute path to the executable it is running in.
  *
- * The implementation follows http://stackoverflow.com/a/933996/712014
+ * The implementation follows https://stackoverflow.com/a/933996/712014
  *
  * Returned value must be freed by the caller.
  */
 char *get_exe_path(const char *argv0);
+
+/**
+ * Initialize the DPI setting.
+ * This will use the 'Xft.dpi' X resource if available and fall back to
+ * guessing the correct value otherwise.
+ */
+void init_dpi(void);
+
+/**
+ * This function returns the value of the DPI setting.
+ *
+ */
+long get_dpi_value(void);
 
 /**
  * Convert a logical amount of pixels (e.g. 2 pixels on a “standard” 96 DPI
@@ -518,7 +537,6 @@ typedef struct placeholder_t {
  */
 char *format_placeholders(char *format, placeholder_t *placeholders, int num);
 
-#ifdef CAIRO_SUPPORT
 /* We need to flush cairo surfaces twice to avoid an assertion bug. See #1989
  * and https://bugs.freedesktop.org/show_bug.cgi?id=92455. */
 #define CAIRO_SURFACE_FLUSH(surface)  \
@@ -526,7 +544,6 @@ char *format_placeholders(char *format, placeholder_t *placeholders, int num);
         cairo_surface_flush(surface); \
         cairo_surface_flush(surface); \
     } while (0)
-#endif
 
 /* A wrapper grouping an XCB drawable and both a graphics context
  * and the corresponding cairo objects representing it. */
@@ -542,14 +559,12 @@ typedef struct surface_t {
     int width;
     int height;
 
-#ifdef CAIRO_SUPPORT
     /* A cairo surface representing the drawable. */
     cairo_surface_t *surface;
 
     /* The cairo object representing the drawable. In general,
      * this is what one should use for any drawing operation. */
     cairo_t *cr;
-#endif
 } surface_t;
 
 /**
@@ -592,17 +607,17 @@ void draw_util_text(i3String *text, surface_t *surface, color_t fg_color, color_
  * surface as well as restoring the cairo state.
  *
  */
-void draw_util_rectangle(xcb_connection_t *conn, surface_t *surface, color_t color, double x, double y, double w, double h);
+void draw_util_rectangle(surface_t *surface, color_t color, double x, double y, double w, double h);
 
 /**
  * Clears a surface with the given color.
  *
  */
-void draw_util_clear_surface(xcb_connection_t *conn, surface_t *surface, color_t color);
+void draw_util_clear_surface(surface_t *surface, color_t color);
 
 /**
  * Copies a surface onto another surface.
  *
  */
-void draw_util_copy_surface(xcb_connection_t *conn, surface_t *src, surface_t *dest, double src_x, double src_y,
+void draw_util_copy_surface(surface_t *src, surface_t *dest, double src_x, double src_y,
                             double dest_x, double dest_y, double width, double height);

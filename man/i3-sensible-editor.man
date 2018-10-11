@@ -20,6 +20,7 @@ It tries to start one of the following (in that order):
 * $VISUAL
 * $EDITOR
 * nano
+* nvim
 * vim
 * vi
 * emacs
@@ -28,7 +29,8 @@ It tries to start one of the following (in that order):
 * mg
 * jed
 * gedit
-* mc-edit
+* mcedit
+* gvim
 
 Please don’t complain about the order: If the user has any preference, they will
 have $VISUAL or $EDITOR set.

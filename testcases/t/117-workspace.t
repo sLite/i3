@@ -2,13 +2,13 @@
 # vim:ts=4:sw=4:expandtab
 #
 # Please read the following documents before working on tests:
-# • http://build.i3wm.org/docs/testsuite.html
+# • https://build.i3wm.org/docs/testsuite.html
 #   (or docs/testsuite)
 #
-# • http://build.i3wm.org/docs/lib-i3test.html
+# • https://build.i3wm.org/docs/lib-i3test.html
 #   (alternatively: perldoc ./testcases/lib/i3test.pm)
 #
-# • http://build.i3wm.org/docs/ipc.html
+# • https://build.i3wm.org/docs/ipc.html
 #   (or docs/ipc)
 #
 # • http://onyxneon.com/books/modern_perl/modern_perl_a4.pdf
@@ -279,6 +279,12 @@ is(focused_ws(), 'bla', 'now on workspace bla');
 cmd 'rename workspace to to';
 ok(!workspace_exists('bla'), 'workspace bla does not exist anymore');
 is(focused_ws(), 'to', 'now on workspace to');
+cmd 'rename workspace to bla';
+ok(!workspace_exists('to'), 'workspace to does not exist anymore');
+is(focused_ws(), 'bla', 'now on workspace bla');
+cmd 'rename workspace to tosomething';
+ok(!workspace_exists('bla'), 'workspace bla does not exist anymore');
+is(focused_ws(), 'tosomething', 'now on workspace tosomething');
 
 # 6: already existing workspace
 my $result = cmd 'rename workspace qux to 11: bar';

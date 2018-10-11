@@ -1,5 +1,3 @@
-#undef I3__FILE__
-#define I3__FILE__ "match.c"
 /*
  * vim:ts=4:sw=4:expandtab
  *
@@ -27,8 +25,8 @@
  */
 void match_init(Match *match) {
     memset(match, 0, sizeof(Match));
-    match->dock = M_DONTCHECK;
     match->urgent = U_DONTCHECK;
+    match->window_mode = WM_ANY;
     /* we use this as the placeholder value for "not set". */
     match->window_type = UINT32_MAX;
 }
@@ -53,8 +51,8 @@ bool match_is_empty(Match *match) {
             match->id == XCB_NONE &&
             match->window_type == UINT32_MAX &&
             match->con_id == NULL &&
-            match->dock == -1 &&
-            match->floating == M_ANY);
+            match->dock == M_NODOCK &&
+            match->window_mode == WM_ANY);
 }
 
 /*
@@ -169,7 +167,7 @@ bool match_matches_window(Match *match, i3Window *window) {
         /* if we find a window that is newer than this one, bail */
         TAILQ_FOREACH(con, &all_cons, all_cons) {
             if ((con->window != NULL) &&
-                _i3_timercmp(con->window->urgent, window->urgent, > )) {
+                _i3_timercmp(con->window->urgent, window->urgent, >)) {
                 return false;
             }
         }
@@ -185,7 +183,7 @@ bool match_matches_window(Match *match, i3Window *window) {
         TAILQ_FOREACH(con, &all_cons, all_cons) {
             if ((con->window != NULL) &&
                 (con->window->urgent.tv_sec != 0) &&
-                _i3_timercmp(con->window->urgent, window->urgent, < )) {
+                _i3_timercmp(con->window->urgent, window->urgent, <)) {
                 return false;
             }
         }
@@ -244,6 +242,21 @@ bool match_matches_window(Match *match, i3Window *window) {
         }
     }
 
+    if (match->window_mode != WM_ANY) {
+        if ((con = con_by_window_id(window->id)) == NULL)
+            return false;
+
+        const bool floating = (con_inside_floating(con) != NULL);
+
+        if ((match->window_mode == WM_TILING && floating) ||
+            (match->window_mode == WM_FLOATING && !floating)) {
+            LOG("window_mode does not match\n");
+            return false;
+        }
+
+        LOG("window_mode matches\n");
+    }
+
     return true;
 }
 
@@ -294,12 +307,8 @@ void match_parse_property(Match *match, const char *ctype, const char *cvalue) {
             return;
         }
 
-        char *end;
-        long parsed = strtol(cvalue, &end, 0);
-        if (parsed == LONG_MIN ||
-            parsed == LONG_MAX ||
-            parsed < 0 ||
-            (end && *end != '\0')) {
+        long parsed;
+        if (!parse_long(cvalue, &parsed, 0)) {
             ELOG("Could not parse con id \"%s\"\n", cvalue);
             match->error = sstrdup("invalid con_id");
         } else {
@@ -310,12 +319,8 @@ void match_parse_property(Match *match, const char *ctype, const char *cvalue) {
     }
 
     if (strcmp(ctype, "id") == 0) {
-        char *end;
-        long parsed = strtol(cvalue, &end, 0);
-        if (parsed == LONG_MIN ||
-            parsed == LONG_MAX ||
-            parsed < 0 ||
-            (end && *end != '\0')) {
+        long parsed;
+        if (!parse_long(cvalue, &parsed, 0)) {
             ELOG("Could not parse window id \"%s\"\n", cvalue);
             match->error = sstrdup("invalid id");
         } else {
@@ -382,6 +387,16 @@ void match_parse_property(Match *match, const char *ctype, const char *cvalue) {
     if (strcmp(ctype, "workspace") == 0) {
         regex_free(match->workspace);
         match->workspace = regex_new(cvalue);
+        return;
+    }
+
+    if (strcmp(ctype, "tiling") == 0) {
+        match->window_mode = WM_TILING;
+        return;
+    }
+
+    if (strcmp(ctype, "floating") == 0) {
+        match->window_mode = WM_FLOATING;
         return;
     }
 

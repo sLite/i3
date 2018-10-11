@@ -8,7 +8,6 @@ WriteMakefile(
     MIN_PERL_VERSION => '5.010000', # 5.10.0
     PREREQ_PM => {
         'AnyEvent'     => 0,
-        'AnyEvent::I3' => '0.16',
         'X11::XCB'     => '0.12',
         'Inline'       => 0,
         'Inline::C'    => 0,
@@ -19,7 +18,11 @@ WriteMakefile(
     PM => {}, # do not install any files from this directory
     clean => {
         FILES => 'testsuite-* latest i3-cfg-for-*',
-    }
+    },
+    # This is a pure-Perl distribution:
+    linkext => {
+        LINKTYPE => '',
+    },
 );
 
 package MY;

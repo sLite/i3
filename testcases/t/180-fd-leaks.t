@@ -2,13 +2,13 @@
 # vim:ts=4:sw=4:expandtab
 #
 # Please read the following documents before working on tests:
-# • http://build.i3wm.org/docs/testsuite.html
+# • https://build.i3wm.org/docs/testsuite.html
 #   (or docs/testsuite)
 #
-# • http://build.i3wm.org/docs/lib-i3test.html
+# • https://build.i3wm.org/docs/lib-i3test.html
 #   (alternatively: perldoc ./testcases/lib/i3test.pm)
 #
-# • http://build.i3wm.org/docs/ipc.html
+# • https://build.i3wm.org/docs/ipc.html
 #   (or docs/ipc)
 #
 # • http://onyxneon.com/books/modern_perl/modern_perl_a4.pdf
@@ -19,6 +19,9 @@
 use i3test;
 use POSIX qw(mkfifo);
 use File::Temp qw(:POSIX tempfile);
+
+SKIP: {
+skip "Procfs not available on $^O", 1 if $^O eq 'openbsd';
 
 my $i3 = i3(get_socket_path());
 
@@ -58,5 +61,7 @@ for my $fd (keys %fds) {
 }
 
 is(scalar keys %fds, 0, 'No file descriptors leaked');
+
+}
 
 done_testing;

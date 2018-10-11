@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 # vim:ts=4:sw=4:expandtab
 # © 2012 Michael Stapelberg
-# Licensed under BSD license, see http://code.i3wm.org/i3/tree/LICENSE
+# Licensed under BSD license, see https://github.com/i3/i3/blob/next/LICENSE
 #
 # Append this line to your i3 config file:
 #     exec_always ~/per-workspace-layout.pl
@@ -14,6 +14,7 @@ use warnings;
 use AnyEvent;
 use AnyEvent::I3;
 use v5.10;
+use utf8;
 
 my %layouts = (
     '4' => 'tabbed',

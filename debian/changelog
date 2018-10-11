@@ -1,9 +1,42 @@
+i3-wm (4.15-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Sat, 10 Mar 2018 17:27:26 +0100
+
+i3-wm (4.14.1-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Sun, 24 Sep 2017 19:21:15 +0200
+
+i3-wm (4.14-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Mon, 04 Sep 2017 07:53:16 +0200
+
+i3-wm (4.13-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Tue, 08 Nov 2016 19:02:16 +0100
+
+i3-wm (4.12-2) unstable; urgency=medium
+
+  * Override lintian warning desktop-entry-contains-unknown-key for
+    DesktopNames, gdm needs that key.
+  * Remove i3-wm.menu to conform to the tech-ctte decision on #741573.
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Fri, 01 Apr 2016 15:51:23 +0200
+
 i3-wm (4.12-1) unstable; urgency=medium
 
   * New upstream release.
   * Move to debhelper 9
   * Bump Standards-Version to 3.9.7 (no changes necessary)
   * debian/watch: verify signature, use https
+  * Enable full hardening
 
  -- Michael Stapelberg <stapelberg@debian.org>  Sun, 06 Mar 2016 14:20:38 +0100
 
@@ -287,7 +320,7 @@ i3-wm (4.0.2-1) unstable; urgency=low
   * Bugfix: Use correct format string in load_layout (fixes crash in restart)
   * Bugfix: Fix border rendering (border lines were "cutting" through)
   * Bugfix: Raise floating windows immediately when dragging/resizing
-  * Bugfix: Make focus switching work accross outputs again
+  * Bugfix: Make focus switching work across outputs again
   * Bugfix: migration-script: handle resize top/bottom correctly
   * Bugfix: Fix focus issue when moving containers to workspaces
   * Bugfix: Warp cursor when changing outputs again

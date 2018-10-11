@@ -1,5 +1,3 @@
-#undef I3__FILE__
-#define I3__FILE__ "util.c"
 /*
  * vim:ts=4:sw=4:expandtab
  *
@@ -66,6 +64,34 @@ __attribute__((pure)) bool name_is_digits(const char *name) {
             return false;
 
     return true;
+}
+
+/*
+ * Set 'out' to the layout_t value for the given layout. The function
+ * returns true on success or false if the passed string is not a valid
+ * layout name.
+ *
+ */
+bool layout_from_name(const char *layout_str, layout_t *out) {
+    if (strcmp(layout_str, "default") == 0) {
+        *out = L_DEFAULT;
+        return true;
+    } else if (strcasecmp(layout_str, "stacked") == 0 ||
+               strcasecmp(layout_str, "stacking") == 0) {
+        *out = L_STACKED;
+        return true;
+    } else if (strcasecmp(layout_str, "tabbed") == 0) {
+        *out = L_TABBED;
+        return true;
+    } else if (strcasecmp(layout_str, "splitv") == 0) {
+        *out = L_SPLITV;
+        return true;
+    } else if (strcasecmp(layout_str, "splith") == 0) {
+        *out = L_SPLITH;
+        return true;
+    }
+
+    return false;
 }
 
 /*
@@ -143,20 +169,6 @@ void exec_i3_utility(char *name, char *argv[]) {
 
     warn("Could not start %s", name);
     _exit(2);
-}
-
-/*
- * Checks a generic cookie for errors and quits with the given message if there
- * was an error.
- *
- */
-void check_error(xcb_connection_t *conn, xcb_void_cookie_t cookie, char *err_message) {
-    xcb_generic_error_t *error = xcb_request_check(conn, cookie);
-    if (error != NULL) {
-        fprintf(stderr, "ERROR: %s (X error %d)\n", err_message, error->error_code);
-        xcb_disconnect(conn);
-        exit(-1);
-    }
 }
 
 /*
@@ -275,7 +287,7 @@ void i3_restart(bool forget_layout) {
 
     restore_geometry();
 
-    ipc_shutdown();
+    ipc_shutdown(SHUTDOWN_REASON_RESTART);
 
     LOG("restarting \"%s\"...\n", start_argv[0]);
     /* make sure -a is in the argument list or add it */
@@ -445,4 +457,53 @@ void kill_nagbar(pid_t *nagbar_pid, bool wait_for_it) {
      * for us and we would end up with a <defunct> process. Therefore we
      * waitpid() here. */
     waitpid(*nagbar_pid, NULL, 0);
+}
+
+/*
+ * Converts a string into a long using strtol().
+ * This is a convenience wrapper checking the parsing result. It returns true
+ * if the number could be parsed.
+ */
+bool parse_long(const char *str, long *out, int base) {
+    char *end;
+    long result = strtol(str, &end, base);
+    if (result == LONG_MIN || result == LONG_MAX || result < 0 || (end != NULL && *end != '\0')) {
+        *out = result;
+        return false;
+    }
+
+    *out = result;
+    return true;
+}
+
+/*
+ * Slurp reads path in its entirety into buf, returning the length of the file
+ * or -1 if the file could not be read. buf is set to a buffer of appropriate
+ * size, or NULL if -1 is returned.
+ *
+ */
+ssize_t slurp(const char *path, char **buf) {
+    FILE *f;
+    if ((f = fopen(path, "r")) == NULL) {
+        ELOG("Cannot open file \"%s\": %s\n", path, strerror(errno));
+        return -1;
+    }
+    struct stat stbuf;
+    if (fstat(fileno(f), &stbuf) != 0) {
+        ELOG("Cannot fstat() \"%s\": %s\n", path, strerror(errno));
+        fclose(f);
+        return -1;
+    }
+    /* Allocate one extra NUL byte to make the buffer usable with C string
+     * functions. yajl doesn’t need this, but this makes slurp safer. */
+    *buf = scalloc(stbuf.st_size + 1, 1);
+    size_t n = fread(*buf, 1, stbuf.st_size, f);
+    fclose(f);
+    if ((ssize_t)n != stbuf.st_size) {
+        ELOG("File \"%s\" could not be read entirely: got %zd, want %" PRIi64 "\n", path, n, (int64_t)stbuf.st_size);
+        free(*buf);
+        *buf = NULL;
+        return -1;
+    }
+    return (ssize_t)n;
 }

@@ -65,7 +65,7 @@ for my $line (@raw_lines) {
 my $current_state;
 
 for my $line (@lines) {
-    if (my ($state) = ($line =~ /^state ([A-Z_]+):$/)) {
+    if (my ($state) = ($line =~ /^state ([A-Z0-9_]+):$/)) {
         #say "got a new state: $state";
         $current_state = $state;
     } else {
@@ -116,17 +116,16 @@ my @keys = sort { (length($b) <=> length($a)) or ($a cmp $b) } keys %states;
 
 open(my $enumfh, '>', "GENERATED_${prefix}_enums.h");
 
-# XXX: we might want to have a way to do this without a trailing comma, but gcc
-# seems to eat it.
 my %statenum;
 say $enumfh 'typedef enum {';
 my $cnt = 0;
 for my $state (@keys, '__CALL') {
-    say $enumfh "    $state = $cnt,";
+    say $enumfh ',' if $cnt > 0;
+    print $enumfh "    $state = $cnt";
     $statenum{$state} = $cnt;
     $cnt++;
 }
-say $enumfh '} cmdp_state;';
+say $enumfh "\n} cmdp_state;";
 close($enumfh);
 
 # Third step: Generate the call function.
@@ -155,11 +154,19 @@ for my $state (@keys) {
         # to generate a format string. The format uses %d for <number>s,
         # literal numbers or state IDs and %s for NULL, <string>s and literal
         # strings.
+
+        # remove the function name temporarily, so that the following
+        # replacements only apply to the arguments.
+        my ($funcname) = ($fmt =~ /^(.+)\(/);
+        $fmt =~ s/^$funcname//;
+
         $fmt =~ s/$_/%d/g for @keys;
         $fmt =~ s/\$([a-z_]+)/%s/g;
         $fmt =~ s/\&([a-z_]+)/%ld/g;
         $fmt =~ s/"([a-z0-9_]+)"/%s/g;
         $fmt =~ s/(?:-?|\b)[0-9]+\b/%d/g;
+
+        $fmt = $funcname . $fmt;
 
         say $callfh "         case $call_id:";
         say $callfh "             result->next_state = $next_state;";
@@ -217,7 +224,7 @@ for my $state (@keys) {
             $next_state = '__CALL';
         }
         my $identifier = $token->{identifier};
-        say $tokfh qq|    { "$token_name", "$identifier", $next_state, { $call_identifier } }, |;
+        say $tokfh qq|    { "$token_name", "$identifier", $next_state, { $call_identifier } },|;
     }
     say $tokfh '};';
 }

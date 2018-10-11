@@ -17,7 +17,7 @@ my $tests_total;
 
 sub noninteractive {
     # CONTINUOUS_INTEGRATION gets set when running under Travis, see
-    # http://docs.travis-ci.com/user/ci-environment/ and
+    # https://docs.travis-ci.com/user/ci-environment/ and
     # https://github.com/travis-ci/travis-ci/issues/1337
     return (! -t STDOUT) || (
         defined($ENV{CONTINUOUS_INTEGRATION}) &&
@@ -46,8 +46,8 @@ sub status_init {
     status_completed(0);
 }
 
-# generates the status text, prints it in the appropiate line
-# and returns it, so it can be used in conjuction with C<Log()>
+# generates the status text, prints it in the appropriate line
+# and returns it, so it can be used in conjunction with C<Log()>
 sub status {
     my ($display, $msg) = @_;
     my $status = "[$display] $msg";

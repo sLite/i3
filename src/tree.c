@@ -1,5 +1,3 @@
-#undef I3__FILE__
-#define I3__FILE__ "tree.c"
 /*
  * vim:ts=4:sw=4:expandtab
  *
@@ -66,12 +64,19 @@ static Con *_create___i3(void) {
  *
  */
 bool tree_restore(const char *path, xcb_get_geometry_reply_t *geometry) {
+    bool result = false;
     char *globbed = resolve_tilde(path);
+    char *buf = NULL;
 
     if (!path_exists(globbed)) {
         LOG("%s does not exist, not restoring tree\n", globbed);
-        free(globbed);
-        return false;
+        goto out;
+    }
+
+    ssize_t len;
+    if ((len = slurp(globbed, &buf)) < 0) {
+        /* slurp already logged an error. */
+        goto out;
     }
 
     /* TODO: refactor the following */
@@ -83,8 +88,7 @@ bool tree_restore(const char *path, xcb_get_geometry_reply_t *geometry) {
         geometry->height};
     focused = croot;
 
-    tree_append_json(focused, globbed, NULL);
-    free(globbed);
+    tree_append_json(focused, buf, len, NULL);
 
     DLOG("appended tree, using new root\n");
     croot = TAILQ_FIRST(&(croot->nodes_head));
@@ -106,8 +110,12 @@ bool tree_restore(const char *path, xcb_get_geometry_reply_t *geometry) {
     }
 
     restore_open_placeholder_windows(croot);
+    result = true;
 
-    return true;
+out:
+    free(globbed);
+    free(buf);
+    return result;
 }
 
 /*
@@ -258,7 +266,7 @@ bool tree_close_internal(Con *con, kill_window_t kill_window, bool dont_kill_par
              * will be mapped when i3 closes its connection (e.g. when
              * restarting). This is not what we want, since some apps keep
              * unmapped windows around and don’t expect them to suddenly be
-             * mapped. See http://bugs.i3wm.org/1617 */
+             * mapped. See https://bugs.i3wm.org/1617 */
             xcb_change_save_set(conn, XCB_SET_MODE_DELETE, con->window->id);
 
             /* Ignore X11 errors for the ReparentWindow request.
@@ -322,16 +330,14 @@ bool tree_close_internal(Con *con, kill_window_t kill_window, bool dont_kill_par
         DLOG("parent container killed\n");
     }
 
-    free(con->name);
-    FREE(con->deco_render_params);
-    TAILQ_REMOVE(&all_cons, con, all_cons);
-    while (!TAILQ_EMPTY(&(con->swallow_head))) {
-        Match *match = TAILQ_FIRST(&(con->swallow_head));
-        TAILQ_REMOVE(&(con->swallow_head), match, matches);
-        match_free(match);
-        free(match);
+    if (ws == con) {
+        DLOG("Closing a workspace container, updating EWMH atoms\n");
+        ewmh_update_number_of_desktops();
+        ewmh_update_desktop_names();
+        ewmh_update_wm_desktop();
     }
-    free(con);
+
+    con_free(con);
 
     /* in the case of floating windows, we already focused another container
      * when closing the parent, so we can exit now. */
@@ -345,12 +351,12 @@ bool tree_close_internal(Con *con, kill_window_t kill_window, bool dont_kill_par
             DLOG("focusing %p / %s\n", next, next->name);
             if (next->type == CT_DOCKAREA) {
                 /* Instead of focusing the dockarea, we need to restore focus to the workspace */
-                con_focus(con_descend_focused(output_get_content(next->parent)));
+                con_activate(con_descend_focused(output_get_content(next->parent)));
             } else {
                 if (!force_set_focus && con != focused)
                     DLOG("not changing focus, the container was not focused before\n");
                 else
-                    con_focus(next);
+                    con_activate(next);
             }
         } else {
             DLOG("not focusing because we're not killing anybody\n");
@@ -379,7 +385,11 @@ void tree_split(Con *con, orientation_t orientation) {
 
     if (con->type == CT_WORKSPACE) {
         if (con_num_children(con) < 2) {
-            DLOG("Just changing orientation of workspace\n");
+            if (con_num_children(con) == 0) {
+                DLOG("Changing workspace_layout to L_DEFAULT\n");
+                con->workspace_layout = L_DEFAULT;
+            }
+            DLOG("Changing orientation of workspace\n");
             con->layout = (orientation == HORIZ) ? L_SPLITH : L_SPLITV;
             return;
         } else {
@@ -430,7 +440,7 @@ bool level_up(void) {
     /* Skip over floating containers and go directly to the grandparent
      * (which should always be a workspace) */
     if (focused->parent->type == CT_FLOATING_CON) {
-        con_focus(focused->parent->parent);
+        con_activate(focused->parent->parent);
         return true;
     }
 
@@ -441,7 +451,7 @@ bool level_up(void) {
         ELOG("'focus parent': Focus is already on the workspace, cannot go higher than that.\n");
         return false;
     }
-    con_focus(focused->parent);
+    con_activate(focused->parent);
     return true;
 }
 
@@ -466,7 +476,7 @@ bool level_down(void) {
             next = TAILQ_FIRST(&(next->focus_head));
     }
 
-    con_focus(next);
+    con_activate(next);
     return true;
 }
 
@@ -477,7 +487,7 @@ static void mark_unmapped(Con *con) {
     TAILQ_FOREACH(current, &(con->nodes_head), nodes)
     mark_unmapped(current);
     if (con->type == CT_WORKSPACE) {
-        /* We need to call mark_unmapped on floating nodes aswell since we can
+        /* We need to call mark_unmapped on floating nodes as well since we can
          * make containers floating. */
         TAILQ_FOREACH(current, &(con->floating_head), floating_windows)
         mark_unmapped(current);
@@ -529,7 +539,7 @@ static bool _tree_next(Con *con, char way, orientation_t orientation, bool wrap)
 
         if (!current_output)
             return false;
-        DLOG("Current output is %s\n", current_output->name);
+        DLOG("Current output is %s\n", output_primary_name(current_output));
 
         /* Try to find next output */
         direction_t direction;
@@ -547,7 +557,7 @@ static bool _tree_next(Con *con, char way, orientation_t orientation, bool wrap)
         next_output = get_output_next(direction, current_output, CLOSEST_OUTPUT);
         if (!next_output)
             return false;
-        DLOG("Next output is %s\n", next_output->name);
+        DLOG("Next output is %s\n", output_primary_name(next_output));
 
         /* Find visible workspace on next output */
         Con *workspace = NULL;
@@ -557,26 +567,14 @@ static bool _tree_next(Con *con, char way, orientation_t orientation, bool wrap)
         if (!workspace)
             return false;
 
-        workspace_show(workspace);
-
-        /* If a workspace has an active fullscreen container, one of its
-         * children should always be focused. The above workspace_show()
-         * should be adequate for that, so return. */
-        if (con_get_fullscreen_con(workspace, CF_OUTPUT))
-            return true;
-
-        Con *focus = con_descend_direction(workspace, direction);
-
-        /* special case: if there was no tiling con to focus and the workspace
-         * has a floating con in the focus stack, focus the top of the focus
-         * stack (which may be floating) */
-        if (focus == workspace)
+        Con *focus = con_descend_tiling_focused(workspace);
+        if (focus == workspace) {
             focus = con_descend_focused(workspace);
-
-        if (focus) {
-            con_focus(focus);
-            x_set_warp_to(&(focus->rect));
         }
+
+        workspace_show(workspace);
+        con_activate(focus);
+        x_set_warp_to(&(focus->rect));
         return true;
     }
 
@@ -613,7 +611,7 @@ static bool _tree_next(Con *con, char way, orientation_t orientation, bool wrap)
             TAILQ_INSERT_HEAD(&(parent->floating_head), last, floating_windows);
         }
 
-        con_focus(con_descend_focused(next));
+        con_activate(con_descend_focused(next));
         return true;
     }
 
@@ -638,7 +636,7 @@ static bool _tree_next(Con *con, char way, orientation_t orientation, bool wrap)
         next = TAILQ_PREV(current, nodes_head, nodes);
 
     if (!next) {
-        if (!config.force_focus_wrapping) {
+        if (config.focus_wrapping != FOCUS_WRAPPING_FORCE) {
             /* If there is no next/previous container, we check if we can focus one
              * when going higher (without wrapping, though). If so, we are done, if
              * not, we wrap */
@@ -662,7 +660,7 @@ static bool _tree_next(Con *con, char way, orientation_t orientation, bool wrap)
     /* 3: focus choice comes in here. at the moment we will go down
      * until we find a window */
     /* TODO: check for window, atm we only go down as far as possible */
-    con_focus(con_descend_focused(next));
+    con_activate(con_descend_focused(next));
     return true;
 }
 
@@ -672,7 +670,8 @@ static bool _tree_next(Con *con, char way, orientation_t orientation, bool wrap)
  *
  */
 void tree_next(char way, orientation_t orientation) {
-    _tree_next(focused, way, orientation, true);
+    _tree_next(focused, way, orientation,
+               config.focus_wrapping != FOCUS_WRAPPING_OFF);
 }
 
 /*

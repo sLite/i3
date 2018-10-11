@@ -2,13 +2,13 @@
 # vim:ts=4:sw=4:expandtab
 #
 # Please read the following documents before working on tests:
-# • http://build.i3wm.org/docs/testsuite.html
+# • https://build.i3wm.org/docs/testsuite.html
 #   (or docs/testsuite)
 #
-# • http://build.i3wm.org/docs/lib-i3test.html
+# • https://build.i3wm.org/docs/lib-i3test.html
 #   (alternatively: perldoc ./testcases/lib/i3test.pm)
 #
-# • http://build.i3wm.org/docs/ipc.html
+# • https://build.i3wm.org/docs/ipc.html
 #   (or docs/ipc)
 #
 # • http://onyxneon.com/books/modern_perl/modern_perl_a4.pdf
@@ -29,7 +29,7 @@ sub migrate_config {
     print $fh $config;
     close($fh);
 
-    my $cmd = "sh -c 'exec " . abs_path("../i3-migrate-config-to-v4") . " --v3 <$tmpfile'";
+    my $cmd = "sh -c 'exec i3-migrate-config-to-v4 --v3 <$tmpfile'";
     return [ split /\n/, qx($cmd) ];
 }
 
@@ -153,7 +153,7 @@ ok(line_exists($output, qr|^bindsym Mod1\+s restart$|), 'restart unchanged');
 ok(line_exists($output, qr|^bindsym Mod1\+s reload$|), 'reload unchanged');
 ok(line_exists($output, qr|^bindsym Mod1\+s exit$|), 'exit unchanged');
 ok(line_exists($output, qr|^bindcode Mod1\+c exec /usr/bin/urxvt$|), 'bind changed to bindcode');
-ok(line_exists($output, qr|^mode "asdf" {$|), 'mode asdf unchanged');
+ok(line_exists($output, qr|^mode "asdf" \{$|), 'mode asdf unchanged');
 ok(line_exists($output, qr|^bindcode 36 mode \"default\"$|), 'mode default unchanged');
 ok(line_exists($output, qr|^}$|), 'closing mode bracket still there');
 
@@ -336,13 +336,13 @@ ok(line_exists($output, qr|^bindsym Mod1\+3 move container to workspace work|), 
 #####################################################################
 
 $output = migrate_config('');
-ok(line_exists($output, qr|bar {|), 'i3bar added');
+ok(line_exists($output, qr|bar \{|), 'i3bar added');
 
 $output = migrate_config('workspace_bar enable');
-ok(line_exists($output, qr|bar {|), 'i3bar added');
+ok(line_exists($output, qr|bar \{|), 'i3bar added');
 
 $output = migrate_config('workspace_bar no');
-ok(!line_exists($output, qr|bar {|), 'no i3bar added');
+ok(!line_exists($output, qr|bar \{|), 'no i3bar added');
 
 #####################################################################
 # check whether the mode command gets quotes

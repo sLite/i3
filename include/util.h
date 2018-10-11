@@ -10,6 +10,8 @@
  */
 #pragma once
 
+#include <config.h>
+
 #include <err.h>
 
 #include "data.h"
@@ -45,15 +47,20 @@
         break;                            \
     }
 
-#define FREE(pointer)          \
-    do {                       \
-        if (pointer != NULL) { \
-            free(pointer);     \
-            pointer = NULL;    \
-        }                      \
+#define FREE(pointer)   \
+    do {                \
+        free(pointer);  \
+        pointer = NULL; \
     } while (0)
 
 #define CALL(obj, member, ...) obj->member(obj, ##__VA_ARGS__)
+
+#define SWAP(first, second, type) \
+    do {                          \
+        type tmp_SWAP = first;    \
+        first = second;           \
+        second = tmp_SWAP;        \
+    } while (0)
 
 int min(int a, int b);
 int max(int a, int b);
@@ -66,6 +73,14 @@ Rect rect_sub(Rect a, Rect b);
  *
  */
 __attribute__((pure)) bool name_is_digits(const char *name);
+
+/**
+ * Set 'out' to the layout_t value for the given layout. The function
+ * returns true on success or false if the passed string is not a valid
+ * layout name.
+ *
+ */
+bool layout_from_name(const char *layout_str, layout_t *out);
 
 /**
  * Parses the workspace name as a number. Returns -1 if the workspace should be
@@ -97,14 +112,6 @@ bool update_if_necessary(uint32_t *destination, const uint32_t new_value);
  *
  */
 void exec_i3_utility(char *name, char *argv[]);
-
-/**
- * Checks a generic cookie for errors and quits with the given message if
- * there was an error.
- *
- */
-void check_error(xcb_connection_t *conn, xcb_void_cookie_t cookie,
-                 char *err_message);
 
 /**
  * Checks if the given path exists by calling stat().
@@ -155,3 +162,18 @@ void start_nagbar(pid_t *nagbar_pid, char *argv[]);
  *
  */
 void kill_nagbar(pid_t *nagbar_pid, bool wait_for_it);
+
+/**
+ * Converts a string into a long using strtol().
+ * This is a convenience wrapper checking the parsing result. It returns true
+ * if the number could be parsed.
+ */
+bool parse_long(const char *str, long *out, int base);
+
+/**
+ * Slurp reads path in its entirety into buf, returning the length of the file
+ * or -1 if the file could not be read. buf is set to a buffer of appropriate
+ * size, or NULL if -1 is returned.
+ *
+ */
+ssize_t slurp(const char *path, char **buf);

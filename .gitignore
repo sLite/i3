@@ -13,6 +13,13 @@ testcases/MYMETA.json
 testcases/MYMETA.yml
 testcases/blib/
 testcases/pm_to_blib
+AnyEvent-I3/Makefile
+AnyEvent-I3/META.yml
+AnyEvent-I3/MYMETA.json
+AnyEvent-I3/MYMETA.yml
+AnyEvent-I3/blib/
+AnyEvent-I3/inc/
+AnyEvent-I3/pm_to_blib
 *.output
 *.tab.*
 *.yy.c
@@ -34,3 +41,30 @@ i3-command-parser.stamp
 i3-config-parser.stamp
 .clang_complete
 LAST_VERSION
+
+################################################################################
+# https://raw.githubusercontent.com/github/gitignore/master/Autotools.gitignore
+################################################################################
+
+# http://www.gnu.org/software/automake
+
+Makefile.in
+/ar-lib
+/test-driver
+
+# http://www.gnu.org/software/autoconf
+
+/autom4te.cache
+/autoscan.log
+/autoscan-*.log
+/aclocal.m4
+/compile
+/config.h.in
+/config.guess
+/config.sub
+/configure
+/configure.scan
+/depcomp
+/install-sh
+/missing
+/stamp-h1

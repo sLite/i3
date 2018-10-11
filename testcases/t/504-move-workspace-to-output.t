@@ -2,13 +2,13 @@
 # vim:ts=4:sw=4:expandtab
 #
 # Please read the following documents before working on tests:
-# • http://build.i3wm.org/docs/testsuite.html
+# • https://build.i3wm.org/docs/testsuite.html
 #   (or docs/testsuite)
 #
-# • http://build.i3wm.org/docs/lib-i3test.html
+# • https://build.i3wm.org/docs/lib-i3test.html
 #   (alternatively: perldoc ./testcases/lib/i3test.pm)
 #
-# • http://build.i3wm.org/docs/ipc.html
+# • https://build.i3wm.org/docs/ipc.html
 #   (or docs/ipc)
 #
 # • http://onyxneon.com/books/modern_perl/modern_perl_a4.pdf
@@ -17,22 +17,19 @@
 # Tests whether the 'move workspace <ws> to [output] <output>' command works
 #
 use List::Util qw(first);
-use i3test i3_autostart => 0;
-
-# TODO:
-# introduce 'move workspace 3 to output <output>' with synonym 'move workspace 3 to <output>'
-
-# Ensure the pointer is at (0, 0) so that we really start on the first
-# (the left) workspace.
-$x->root->warp_pointer(0, 0);
-
-my $config = <<EOT;
+use i3test i3_config => <<EOT;
 # i3 config file (v4)
 font -misc-fixed-medium-r-normal--13-120-75-75-C-70-iso10646-1
 
 fake-outputs 1024x768+0+0,1024x768+1024+0
+
+bar {
+    # Disable i3bar.
+    i3bar_command :
+}
 EOT
-my $pid = launch_with_config($config);
+
+# TODO: get rid of smartmatch in this test
 
 ################################################################################
 # Setup workspaces so that they stay open (with an empty container).
@@ -163,6 +160,55 @@ ok(!($empty_ws ~~ @$x0), 'empty_ws not on fake-0');
 ok(!($empty_ws ~~ @$x1), 'empty_ws not on fake-1');
 ok($other_output_ws ~~ @$x0, 'other_output_ws on fake-0');
 
-exit_gracefully($pid);
+################################################################################
+# Verify that the special word 'current' can be used for the output.
+################################################################################
+
+my $ws1 = fresh_workspace(output => 1);
+open_window;
+cmd 'mark marked';
+
+my $ws0 = fresh_workspace(output => 0);
+
+($x0, $x1) = workspaces_per_screen();
+ok($ws0 ~~ @$x0, 'ws0 on fake-0');
+ok($ws1 ~~ @$x1, 'ws1 on fake-1');
+
+cmd '[con_mark=marked] move workspace to output current';
+
+($x0, $x1) = workspaces_per_screen();
+ok($ws1 ~~ @$x0, 'ws1 on fake-0');
+
+################################################################################
+# Verify that '[class=".*"] move workspace to output' doesn't fail when
+# containers in the scratchpad are matched.
+# See issue: #3064.
+################################################################################
+my $__i3_scratch = get_ws('__i3_scratch');
+is(scalar @{$__i3_scratch->{floating_nodes}}, 0, 'scratchpad is empty');
+
+$ws0 = fresh_workspace(output => 0);
+open_window(wm_class => 'a');
+
+$ws1 = fresh_workspace(output => 1);
+open_window(wm_class => 'b');
+my $scratchpad_window = open_window(wm_class => 'c');
+cmd 'move to scratchpad';
+
+($x0, $x1) = workspaces_per_screen();
+ok($ws0 ~~ @$x0, 'ws0 on fake-0');
+ok($ws1 ~~ @$x1, 'ws1 on fake-1');
+
+my $reply = cmd '[class=".*"] move workspace to output fake-1';
+ok($reply->[0]->{success}, 'move successful');
+
+($x0, $x1) = workspaces_per_screen();
+ok($ws0 ~~ @$x1, 'ws0 on fake-1');
+ok($ws1 ~~ @$x1, 'ws1 on fake-1');
+
+$__i3_scratch = get_ws('__i3_scratch');
+is(scalar @{$__i3_scratch->{floating_nodes}}, 1, 'window still in scratchpad');
+
+################################################################################
 
 done_testing;

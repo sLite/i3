@@ -1,5 +1,3 @@
-#undef I3__FILE__
-#define I3__FILE__ "ipc.c"
 /*
  * vim:ts=4:sw=4:expandtab
  *
@@ -10,8 +8,10 @@
  *
  */
 #include "all.h"
+
 #include "yajl_utils.h"
 
+#include <stdint.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <fcntl.h>
@@ -22,7 +22,8 @@
 
 char *current_socketpath = NULL;
 
-TAILQ_HEAD(ipc_client_head, ipc_client) all_clients = TAILQ_HEAD_INITIALIZER(all_clients);
+TAILQ_HEAD(ipc_client_head, ipc_client)
+all_clients = TAILQ_HEAD_INITIALIZER(all_clients);
 
 /*
  * Puts the given socket file descriptor into non-blocking mode or dies if
@@ -61,11 +62,39 @@ void ipc_send_event(const char *event, uint32_t message_type, const char *payloa
 }
 
 /*
- * Calls shutdown() on each socket and closes it. This function to be called
+ * For shutdown events, we send the reason for the shutdown.
+ */
+static void ipc_send_shutdown_event(shutdown_reason_t reason) {
+    yajl_gen gen = ygenalloc();
+    y(map_open);
+
+    ystr("change");
+
+    if (reason == SHUTDOWN_REASON_RESTART) {
+        ystr("restart");
+    } else if (reason == SHUTDOWN_REASON_EXIT) {
+        ystr("exit");
+    }
+
+    y(map_close);
+
+    const unsigned char *payload;
+    ylength length;
+
+    y(get_buf, &payload, &length);
+    ipc_send_event("shutdown", I3_IPC_EVENT_SHUTDOWN, (const char *)payload);
+
+    y(free);
+}
+
+/*
+ * Calls shutdown() on each socket and closes it. This function is to be called
  * when exiting or restarting only!
  *
  */
-void ipc_shutdown(void) {
+void ipc_shutdown(shutdown_reason_t reason) {
+    ipc_send_shutdown_event(reason);
+
     ipc_client *current;
     while (!TAILQ_EMPTY(&all_clients)) {
         current = TAILQ_FIRST(&all_clients);
@@ -84,7 +113,7 @@ void ipc_shutdown(void) {
  * or not (at the moment, always returns true).
  *
  */
-IPC_HANDLER(command) {
+IPC_HANDLER(run_command) {
     /* To get a properly terminated buffer, we copy
      * message_size bytes out of the buffer */
     char *command = scalloc(message_size + 1, 1);
@@ -217,7 +246,7 @@ static void dump_binding(yajl_gen gen, Binding *bind) {
 void dump_node(yajl_gen gen, struct Con *con, bool inplace_restart) {
     y(map_open);
     ystr("id");
-    y(integer, (long int)con);
+    y(integer, (uintptr_t)con);
 
     ystr("type");
     switch (con->type) {
@@ -292,6 +321,11 @@ void dump_node(yajl_gen gen, struct Con *con, bool inplace_restart) {
 
     ystr("focused");
     y(bool, (con == focused));
+
+    if (con->type != CT_ROOT && con->type != CT_OUTPUT) {
+        ystr("output");
+        ystr(con_get_output(con)->name);
+    }
 
     ystr("layout");
     switch (con->layout) {
@@ -444,7 +478,7 @@ void dump_node(yajl_gen gen, struct Con *con, bool inplace_restart) {
     ystr("focus");
     y(array_open);
     TAILQ_FOREACH(node, &(con->focus_head), focused) {
-        y(integer, (long int)node);
+        y(integer, (uintptr_t)node);
     }
     y(array_close);
 
@@ -479,7 +513,7 @@ void dump_node(yajl_gen gen, struct Con *con, bool inplace_restart) {
         if (match->restart_mode)
             continue;
         y(map_open);
-        if (match->dock != -1) {
+        if (match->dock != M_DONTCHECK) {
             ystr("dock");
             y(integer, match->dock);
             ystr("insert_where");
@@ -538,11 +572,22 @@ static void dump_bar_bindings(yajl_gen gen, Barconfig *config) {
         y(integer, current->input_code);
         ystr("command");
         ystr(current->command);
+        ystr("release");
+        y(bool, current->release == B_UPON_KEYRELEASE);
 
         y(map_close);
     }
 
     y(array_close);
+}
+
+static char *canonicalize_output_name(char *name) {
+    /* Do not canonicalize special output names. */
+    if (strcasecmp(name, "primary") == 0) {
+        return name;
+    }
+    Output *output = get_output_by_name(name, false);
+    return output ? output_primary_name(output) : name;
 }
 
 static void dump_bar_config(yajl_gen gen, Barconfig *config) {
@@ -554,8 +599,13 @@ static void dump_bar_config(yajl_gen gen, Barconfig *config) {
     if (config->num_outputs > 0) {
         ystr("outputs");
         y(array_open);
-        for (int c = 0; c < config->num_outputs; c++)
-            ystr(config->outputs[c]);
+        for (int c = 0; c < config->num_outputs; c++) {
+            /* Convert monitor names (RandR ≥ 1.5) or output names
+             * (RandR < 1.5) into monitor names. This way, existing
+             * configs which use output names transparently keep
+             * working. */
+            ystr(canonicalize_output_name(config->outputs[c]));
+        }
         y(array_close);
     }
 
@@ -565,7 +615,7 @@ static void dump_bar_config(yajl_gen gen, Barconfig *config) {
 
         struct tray_output_t *tray_output;
         TAILQ_FOREACH(tray_output, &(config->tray_outputs), tray_outputs) {
-            ystr(tray_output->output);
+            ystr(canonicalize_output_name(tray_output->output));
         }
 
         y(array_close);
@@ -795,7 +845,7 @@ IPC_HANDLER(get_outputs) {
         y(map_open);
 
         ystr("name");
-        ystr(output->name);
+        ystr(output_primary_name(output));
 
         ystr("active");
         y(bool, output->active);
@@ -958,6 +1008,28 @@ IPC_HANDLER(get_bar_config) {
 }
 
 /*
+ * Returns a list of configured binding modes
+ *
+ */
+IPC_HANDLER(get_binding_modes) {
+    yajl_gen gen = ygenalloc();
+
+    y(array_open);
+    struct Mode *mode;
+    SLIST_FOREACH(mode, &modes, modes) {
+        ystr(mode->name);
+    }
+    y(array_close);
+
+    const unsigned char *payload;
+    ylength length;
+    y(get_buf, &payload, &length);
+
+    ipc_send_message(fd, length, I3_IPC_REPLY_TYPE_BINDING_MODES, payload);
+    y(free);
+}
+
+/*
  * Callback for the YAJL parser (will be called when a string is parsed).
  *
  */
@@ -976,8 +1048,9 @@ static int add_subscription(void *extra, const unsigned char *s,
     memcpy(client->events[event], s, len);
 
     DLOG("client is now subscribed to:\n");
-    for (int i = 0; i < client->num_events; i++)
+    for (int i = 0; i < client->num_events; i++) {
         DLOG("event %s\n", client->events[i]);
+    }
     DLOG("(done)\n");
 
     return 1;
@@ -1029,12 +1102,78 @@ IPC_HANDLER(subscribe) {
     yajl_free(p);
     const char *reply = "{\"success\":true}";
     ipc_send_message(fd, strlen(reply), I3_IPC_REPLY_TYPE_SUBSCRIBE, (const uint8_t *)reply);
+
+    if (client->first_tick_sent) {
+        return;
+    }
+
+    bool is_tick = false;
+    for (int i = 0; i < client->num_events; i++) {
+        if (strcmp(client->events[i], "tick") == 0) {
+            is_tick = true;
+            break;
+        }
+    }
+    if (!is_tick) {
+        return;
+    }
+
+    client->first_tick_sent = true;
+    const char *payload = "{\"first\":true,\"payload\":\"\"}";
+    ipc_send_message(client->fd, strlen(payload), I3_IPC_EVENT_TICK, (const uint8_t *)payload);
+}
+
+/*
+ * Returns the raw last loaded i3 configuration file contents.
+ */
+IPC_HANDLER(get_config) {
+    yajl_gen gen = ygenalloc();
+
+    y(map_open);
+
+    ystr("config");
+    ystr(current_config);
+
+    y(map_close);
+
+    const unsigned char *payload;
+    ylength length;
+    y(get_buf, &payload, &length);
+
+    ipc_send_message(fd, length, I3_IPC_REPLY_TYPE_CONFIG, payload);
+    y(free);
+}
+
+/*
+ * Sends the tick event from the message payload to subscribers. Establishes a
+ * synchronization point in event-related tests.
+ */
+IPC_HANDLER(send_tick) {
+    yajl_gen gen = ygenalloc();
+
+    y(map_open);
+
+    ystr("payload");
+    yajl_gen_string(gen, (unsigned char *)message, message_size);
+
+    y(map_close);
+
+    const unsigned char *payload;
+    ylength length;
+    y(get_buf, &payload, &length);
+
+    ipc_send_event("tick", I3_IPC_EVENT_TICK, (const char *)payload);
+    y(free);
+
+    const char *reply = "{\"success\":true}";
+    ipc_send_message(fd, strlen(reply), I3_IPC_REPLY_TYPE_TICK, (const uint8_t *)reply);
+    DLOG("Sent tick event\n");
 }
 
 /* The index of each callback function corresponds to the numeric
  * value of the message type (see include/i3/ipc.h) */
-handler_t handlers[8] = {
-    handle_command,
+handler_t handlers[11] = {
+    handle_run_command,
     handle_get_workspaces,
     handle_subscribe,
     handle_get_outputs,
@@ -1042,6 +1181,9 @@ handler_t handlers[8] = {
     handle_get_marks,
     handle_get_bar_config,
     handle_get_version,
+    handle_get_binding_modes,
+    handle_get_config,
+    handle_send_tick,
 };
 
 /*

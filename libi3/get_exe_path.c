@@ -1,3 +1,12 @@
+/*
+ * vim:ts=4:sw=4:expandtab
+ *
+ * i3 - an improved dynamic tiling window manager
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
+ *
+ */
+#include "libi3.h"
+
 #include <unistd.h>
 #include <string.h>
 #include <stdio.h>
@@ -5,12 +14,10 @@
 #include <stdlib.h>
 #include <errno.h>
 
-#include "libi3.h"
-
 /*
  * This function returns the absolute path to the executable it is running in.
  *
- * The implementation follows http://stackoverflow.com/a/933996/712014
+ * The implementation follows https://stackoverflow.com/a/933996/712014
  *
  * Returned value must be freed by the caller.
  */

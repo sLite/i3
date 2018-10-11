@@ -1,5 +1,3 @@
-#undef I3__FILE__
-#define I3__FILE__ "restore_layout.c"
 /*
  * vim:ts=4:sw=4:expandtab
  *
@@ -17,6 +15,8 @@
 #include <sanitizer/lsan_interface.h>
 #endif
 
+#define TEXT_PADDING logical_px(2)
+
 typedef struct placeholder_state {
     /** The X11 placeholder window. */
     xcb_window_t window;
@@ -26,12 +26,11 @@ typedef struct placeholder_state {
     /** Current size of the placeholder window (to detect size changes). */
     Rect rect;
 
-    /** The pixmap to render on (back buffer). */
-    xcb_pixmap_t pixmap;
-    /** The graphics context for “pixmap”. */
-    xcb_gcontext_t gc;
+    /** The drawable surface */
+    surface_t surface;
 
-    TAILQ_ENTRY(placeholder_state) state;
+    TAILQ_ENTRY(placeholder_state)
+    state;
 } placeholder_state;
 
 static TAILQ_HEAD(state_head, placeholder_state) state_head =
@@ -40,7 +39,6 @@ static TAILQ_HEAD(state_head, placeholder_state) state_head =
 static xcb_connection_t *restore_conn;
 
 static struct ev_io *xcb_watcher;
-static struct ev_check *xcb_check;
 static struct ev_prepare *xcb_prepare;
 
 static void restore_handle_event(int type, xcb_generic_event_t *event);
@@ -50,10 +48,6 @@ static void restore_xcb_got_event(EV_P_ struct ev_io *w, int revents) {
 }
 
 static void restore_xcb_prepare_cb(EV_P_ ev_prepare *w, int revents) {
-    xcb_flush(restore_conn);
-}
-
-static void restore_xcb_check_cb(EV_P_ ev_check *w, int revents) {
     xcb_generic_event_t *event;
 
     if (xcb_connection_has_error(restore_conn)) {
@@ -78,6 +72,8 @@ static void restore_xcb_check_cb(EV_P_ ev_check *w, int revents) {
 
         free(event);
     }
+
+    xcb_flush(restore_conn);
 }
 
 /*
@@ -92,7 +88,6 @@ void restore_connect(void) {
         /* This is not the initial connect, but a reconnect, most likely
          * because our X11 connection was killed (e.g. by a user with xkill. */
         ev_io_stop(main_loop, xcb_watcher);
-        ev_check_stop(main_loop, xcb_check);
         ev_prepare_stop(main_loop, xcb_prepare);
 
         placeholder_state *state;
@@ -104,11 +99,10 @@ void restore_connect(void) {
 
         /* xcb_disconnect leaks memory in libxcb versions earlier than 1.11,
          * but it’s the right function to call. See
-         * http://cgit.freedesktop.org/xcb/libxcb/commit/src/xcb_conn.c?id=4dcbfd77b
+         * https://cgit.freedesktop.org/xcb/libxcb/commit/src/xcb_conn.c?id=4dcbfd77b
          */
         xcb_disconnect(restore_conn);
         free(xcb_watcher);
-        free(xcb_check);
         free(xcb_prepare);
     }
 
@@ -125,30 +119,24 @@ void restore_connect(void) {
     }
 
     xcb_watcher = scalloc(1, sizeof(struct ev_io));
-    xcb_check = scalloc(1, sizeof(struct ev_check));
     xcb_prepare = scalloc(1, sizeof(struct ev_prepare));
 
     ev_io_init(xcb_watcher, restore_xcb_got_event, xcb_get_file_descriptor(restore_conn), EV_READ);
     ev_io_start(main_loop, xcb_watcher);
-
-    ev_check_init(xcb_check, restore_xcb_check_cb);
-    ev_check_start(main_loop, xcb_check);
 
     ev_prepare_init(xcb_prepare, restore_xcb_prepare_cb);
     ev_prepare_start(main_loop, xcb_prepare);
 }
 
 static void update_placeholder_contents(placeholder_state *state) {
-    xcb_change_gc(restore_conn, state->gc, XCB_GC_FOREGROUND,
-                  (uint32_t[]){config.client.placeholder.background.colorpixel});
-    xcb_poly_fill_rectangle(restore_conn, state->pixmap, state->gc, 1,
-                            (xcb_rectangle_t[]){{0, 0, state->rect.width, state->rect.height}});
+    const color_t foreground = config.client.placeholder.text;
+    const color_t background = config.client.placeholder.background;
+
+    draw_util_clear_surface(&(state->surface), background);
 
     // TODO: make i3font functions per-connection, at least these two for now…?
     xcb_flush(restore_conn);
     xcb_aux_sync(restore_conn);
-
-    set_font_colors(state->gc, config.client.placeholder.text, config.client.placeholder.background);
 
     Match *swallows;
     int n = 0;
@@ -176,7 +164,10 @@ static void update_placeholder_contents(placeholder_state *state) {
         DLOG("con %p (placeholder 0x%08x) line %d: %s\n", state->con, state->window, n, serialized);
 
         i3String *str = i3string_from_utf8(serialized);
-        draw_text(str, state->pixmap, state->gc, NULL, 2, (n * (config.font.height + 2)) + 2, state->rect.width - 2);
+        draw_util_text(str, &(state->surface), foreground, background,
+                       TEXT_PADDING,
+                       (n * (config.font.height + TEXT_PADDING)) + TEXT_PADDING,
+                       state->rect.width - 2 * TEXT_PADDING);
         i3string_free(str);
         n++;
         free(serialized);
@@ -187,7 +178,7 @@ static void update_placeholder_contents(placeholder_state *state) {
     int text_width = predict_text_width(line);
     int x = (state->rect.width / 2) - (text_width / 2);
     int y = (state->rect.height / 2) - (config.font.height / 2);
-    draw_text(line, state->pixmap, state->gc, NULL, x, y, text_width);
+    draw_util_text(line, &(state->surface), foreground, background, x, y, text_width);
     i3string_free(line);
     xcb_flush(conn);
     xcb_aux_sync(conn);
@@ -229,17 +220,15 @@ static void open_placeholder_window(Con *con) {
         state->window = placeholder;
         state->con = con;
         state->rect = con->rect;
-        state->pixmap = xcb_generate_id(restore_conn);
-        xcb_create_pixmap(restore_conn, root_depth, state->pixmap,
-                          state->window, state->rect.width, state->rect.height);
-        state->gc = xcb_generate_id(restore_conn);
-        xcb_create_gc(restore_conn, state->gc, state->pixmap, XCB_GC_GRAPHICS_EXPOSURES, (uint32_t[]){0});
+
+        draw_util_surface_init(conn, &(state->surface), placeholder, get_visualtype(root_screen), state->rect.width, state->rect.height);
         update_placeholder_contents(state);
         TAILQ_INSERT_TAIL(&state_head, state, state);
 
         /* create temporary id swallow to match the placeholder */
         Match *temp_id = smalloc(sizeof(Match));
         match_init(temp_id);
+        temp_id->dock = M_DONTCHECK;
         temp_id->id = placeholder;
         TAILQ_INSERT_HEAD(&(con->swallow_head), temp_id, matches);
     }
@@ -286,8 +275,7 @@ bool restore_kill_placeholder(xcb_window_t placeholder) {
             continue;
 
         xcb_destroy_window(restore_conn, state->window);
-        xcb_free_pixmap(restore_conn, state->pixmap);
-        xcb_free_gc(restore_conn, state->gc);
+        draw_util_surface_free(restore_conn, &(state->surface));
         TAILQ_REMOVE(&state_head, state, state);
         free(state);
         DLOG("placeholder window 0x%08x destroyed.\n", placeholder);
@@ -306,14 +294,8 @@ static void expose_event(xcb_expose_event_t *event) {
 
         DLOG("refreshing window 0x%08x contents (con %p)\n", state->window, state->con);
 
-        /* Since we render to our pixmap on every change anyways, expose events
-         * only tell us that the X server lost (parts of) the window contents. We
-         * can handle that by copying the appropriate part from our pixmap to the
-         * window. */
-        xcb_copy_area(restore_conn, state->pixmap, state->window, state->gc,
-                      event->x, event->y, event->x, event->y,
-                      event->width, event->height);
-        xcb_flush(restore_conn);
+        update_placeholder_contents(state);
+
         return;
     }
 
@@ -338,19 +320,10 @@ static void configure_notify(xcb_configure_notify_event_t *event) {
         state->rect.width = event->width;
         state->rect.height = event->height;
 
-        xcb_free_pixmap(restore_conn, state->pixmap);
-        xcb_free_gc(restore_conn, state->gc);
-
-        state->pixmap = xcb_generate_id(restore_conn);
-        xcb_create_pixmap(restore_conn, root_depth, state->pixmap,
-                          state->window, state->rect.width, state->rect.height);
-        state->gc = xcb_generate_id(restore_conn);
-        xcb_create_gc(restore_conn, state->gc, state->pixmap, XCB_GC_GRAPHICS_EXPOSURES, (uint32_t[]){0});
+        draw_util_surface_set_size(&(state->surface), state->rect.width, state->rect.height);
 
         update_placeholder_contents(state);
-        xcb_copy_area(restore_conn, state->pixmap, state->window, state->gc,
-                      0, 0, 0, 0, state->rect.width, state->rect.height);
-        xcb_flush(restore_conn);
+
         return;
     }
 
@@ -360,7 +333,10 @@ static void configure_notify(xcb_configure_notify_event_t *event) {
 static void restore_handle_event(int type, xcb_generic_event_t *event) {
     switch (type) {
         case XCB_EXPOSE:
-            expose_event((xcb_expose_event_t *)event);
+            if (((xcb_expose_event_t *)event)->count == 0) {
+                expose_event((xcb_expose_event_t *)event);
+            }
+
             break;
         case XCB_CONFIGURE_NOTIFY:
             configure_notify((xcb_configure_notify_event_t *)event);

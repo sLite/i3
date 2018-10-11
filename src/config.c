@@ -1,5 +1,3 @@
-#undef I3__FILE__
-#define I3__FILE__ "config.c"
 /*
  * vim:ts=4:sw=4:expandtab
  *
@@ -11,9 +9,11 @@
  *
  */
 #include "all.h"
+
 #include <xkbcommon/xkbcommon.h>
 
 char *current_configpath = NULL;
+char *current_config = NULL;
 Config config;
 struct modes_head modes;
 struct barconfig_head barconfigs = TAILQ_HEAD_INITIALIZER(barconfigs);
@@ -160,13 +160,6 @@ void load_configuration(xcb_connection_t *conn, const char *override_configpath,
             FREE(barconfig);
         }
 
-/* Clear workspace names */
-#if 0
-        Workspace *ws;
-        TAILQ_FOREACH(ws, workspaces, workspaces)
-            workspace_set_name(ws, NULL);
-#endif
-
         /* Invalidate pixmap caches in case font or colors changed */
         Con *con;
         TAILQ_FOREACH(con, &all_cons, all_cons)
@@ -234,6 +227,8 @@ void load_configuration(xcb_connection_t *conn, const char *override_configpath,
     if (config.workspace_urgency_timer == 0)
         config.workspace_urgency_timer = 0.5;
 
+    config.focus_wrapping = FOCUS_WRAPPING_ON;
+
     parse_configuration(override_configpath, true);
 
     if (reload) {
@@ -254,21 +249,4 @@ void load_configuration(xcb_connection_t *conn, const char *override_configpath,
         x_deco_recurse(croot);
         xcb_flush(conn);
     }
-
-#if 0
-    /* Set an empty name for every workspace which got no name */
-    Workspace *ws;
-    TAILQ_FOREACH(ws, workspaces, workspaces) {
-            if (ws->name != NULL) {
-                    /* If the font was not specified when the workspace name
-                     * was loaded, we need to predict the text width now */
-                    if (ws->text_width == 0)
-                            ws->text_width = predict_text_width(global_conn,
-                                            config.font, ws->name, ws->name_len);
-                    continue;
-            }
-
-            workspace_set_name(ws, NULL);
-    }
-#endif
 }

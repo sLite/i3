@@ -1,5 +1,3 @@
-#undef I3__FILE__
-#define I3__FILE__ "move.c"
 /*
  * vim:ts=4:sw=4:expandtab
  *
@@ -101,8 +99,7 @@ static void attach_to_workspace(Con *con, Con *ws, direction_t direction) {
  */
 static void move_to_output_directed(Con *con, direction_t direction) {
     Con *old_ws = con_get_workspace(con);
-    Con *current_output_con = con_get_output(con);
-    Output *current_output = get_output_by_name(current_output_con->name);
+    Output *current_output = get_output_for_con(con);
     Output *output = get_output_next(direction, current_output, CLOSEST_OUTPUT);
 
     if (!output) {
@@ -121,7 +118,7 @@ static void move_to_output_directed(Con *con, direction_t direction) {
     attach_to_workspace(con, ws, direction);
 
     /* fix the focus stack */
-    con_focus(con);
+    con_activate(con);
 
     /* force re-painting the indicators */
     FREE(con->deco_render_params);
@@ -251,7 +248,8 @@ void tree_move(Con *con, int direction) {
                         ? AFTER
                         : BEFORE);
         insert_con_into(con, target, position);
-    } else if (con->parent->parent->type == CT_WORKSPACE &&
+    } else if (!next &&
+               con->parent->parent->type == CT_WORKSPACE &&
                con->parent->layout != L_DEFAULT &&
                con_num_children(con->parent) == 1) {
         /* Con is the lone child of a non-default layout container at the edge

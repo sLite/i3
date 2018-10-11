@@ -2,13 +2,13 @@
 # vim:ts=4:sw=4:expandtab
 #
 # Please read the following documents before working on tests:
-# • http://build.i3wm.org/docs/testsuite.html
+# • https://build.i3wm.org/docs/testsuite.html
 #   (or docs/testsuite)
 #
-# • http://build.i3wm.org/docs/lib-i3test.html
+# • https://build.i3wm.org/docs/lib-i3test.html
 #   (alternatively: perldoc ./testcases/lib/i3test.pm)
 #
-# • http://build.i3wm.org/docs/ipc.html
+# • https://build.i3wm.org/docs/ipc.html
 #   (or docs/ipc)
 #
 # • http://onyxneon.com/books/modern_perl/modern_perl_a4.pdf
@@ -18,22 +18,16 @@
 # the time of launching the new one. Also make sure that focusing containers
 # in other workspaces work even when there is a fullscreen container.
 #
-use i3test i3_autostart => 0;
-
-# Screen setup looks like this:
-# +----+----+
-# | S1 | S2 |
-# +----+----+
-my $config = <<EOT;
+use i3test i3_config => <<EOT;
 # i3 config file (v4)
 font -misc-fixed-medium-r-normal--13-120-75-75-C-70-iso10646-1
 
 fake-outputs 1024x768+0+0,1024x768+1024+0
 EOT
-
-my $pid = launch_with_config($config);
-
-my $i3 = i3(get_socket_path());
+# Screen setup looks like this:
+# +----+----+
+# | S1 | S2 |
+# +----+----+
 
 my $tmp = fresh_workspace;
 
@@ -163,9 +157,6 @@ isnt($x->input_focus, $right2->id, 'bottom right window no longer focused');
 cmd 'focus child';
 is($x->input_focus, $right2->id, 'bottom right window focused again');
 
-cmd '[id="' . $left->id . '"] focus';
-is($x->input_focus, $right2->id, 'prevented focus change to left window');
-
 cmd 'focus up';
 is($x->input_focus, $right1->id, 'allowed focus up');
 
@@ -183,9 +174,6 @@ is($x->input_focus, $right1->id, 'allowed focus wrap (down)');
 
 cmd 'focus up';
 is($x->input_focus, $right2->id, 'allowed focus wrap (up)');
-
-cmd '[id="' . $diff_ws->id . '"] focus';
-is($x->input_focus, $right2->id, 'prevented focus change to different ws');
 
 ################################################################################
 # Same tests when we're in non-global fullscreen mode. It should now be possible
@@ -207,9 +195,6 @@ isnt($x->input_focus, $right2->id, 'bottom right window no longer focused');
 
 cmd 'focus child';
 is($x->input_focus, $right2->id, 'bottom right window focused again');
-
-cmd '[id="' . $left->id . '"] focus';
-is($x->input_focus, $right2->id, 'prevented focus change to left window');
 
 cmd 'focus up';
 is($x->input_focus, $right1->id, 'allowed focus up');
@@ -329,8 +314,105 @@ verify_move(2, 'prevented move to workspace by name');
 cmd "move to workspace prev";
 verify_move(2, 'prevented move to workspace by position');
 
+################################################################################
+# Ensure it's possible to focus a window using the focus command despite
+# fullscreen window blocking it. Fullscreen window should lose its fullscreen
+# mode.
+################################################################################
+
+# first & second tiling, focus using id
+kill_all_windows;
+
+$tmp = fresh_workspace;
+my $first = open_window;
+my $second = open_window;
+cmd 'fullscreen';
+is($x->input_focus, $second->id, 'fullscreen window focused');
+is_num_fullscreen($tmp, 1, '1 fullscreen window');
+
+cmd '[id="'. $first->id .'"] focus';
+sync_with_i3;
+
+is($x->input_focus, $first->id, 'correctly focused using id');
+is_num_fullscreen($tmp, 0, 'no fullscreen windows');
+
+# first floating, second tiling, focus using 'focus floating'
+kill_all_windows;
+
+$tmp = fresh_workspace;
+$first = open_floating_window;
+$second = open_window;
+cmd 'fullscreen';
+is($x->input_focus, $second->id, 'fullscreen window focused');
+is_num_fullscreen($tmp, 1, '1 fullscreen window');
+
+cmd 'focus floating';
+sync_with_i3;
+
+is($x->input_focus, $first->id, 'correctly focused using focus floating');
+is_num_fullscreen($tmp, 0, 'no fullscreen windows');
+
+# first tiling, second floating, focus using 'focus tiling'
+kill_all_windows;
+
+$tmp = fresh_workspace;
+$first = open_window;
+$second = open_floating_window;
+cmd 'fullscreen';
+is($x->input_focus, $second->id, 'fullscreen window focused');
+is_num_fullscreen($tmp, 1, '1 fullscreen window');
+
+cmd 'focus tiling';
+sync_with_i3;
+
+is($x->input_focus, $first->id, 'correctly focused using focus tiling');
+is_num_fullscreen($tmp, 0, 'no fullscreen windows');
+
+################################################################################
+# When the fullscreen window is in an other workspace it should maintain its
+# fullscreen mode since it's not blocking the window to be focused.
+################################################################################
+
+kill_all_windows;
+
+$tmp = fresh_workspace;
+$first = open_window;
+
+$tmp2 = fresh_workspace;
+$second = open_window;
+cmd 'fullscreen';
+is($x->input_focus, $second->id, 'fullscreen window focused');
+is_num_fullscreen($tmp2, 1, '1 fullscreen window');
+
+cmd '[id="'. $first->id .'"] focus';
+sync_with_i3;
+
+is($x->input_focus, $first->id, 'correctly focused using focus id');
+is_num_fullscreen($tmp, 0, 'no fullscreen windows on first workspace');
+is_num_fullscreen($tmp2, 1, 'still one fullscreen window on second workspace');
+
+################################################################################
+# But a global window in another workspace is blocking the window to be focused.
+# Ensure that it loses its fullscreen mode.
+################################################################################
+
+kill_all_windows;
+
+$tmp = fresh_workspace;
+$first = open_window;
+
+$tmp2 = fresh_workspace;
+$second = open_window;
+cmd 'fullscreen global';
+is($x->input_focus, $second->id, 'global window focused');
+is_num_fullscreen($tmp2, 1, '1 fullscreen window');
+
+cmd '[id="'. $first->id .'"] focus';
+sync_with_i3;
+
+is($x->input_focus, $first->id, 'correctly focused using focus id');
+is_num_fullscreen($tmp2, 0, 'no fullscreen windows');
+
+
 # TODO: Tests for "move to output" and "move workspace to output".
-
-exit_gracefully($pid);
-
 done_testing;

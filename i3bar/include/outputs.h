@@ -9,6 +9,8 @@
  */
 #pragma once
 
+#include <config.h>
+
 #include <xcb/xcb.h>
 #include <cairo/cairo-xcb.h>
 
@@ -30,6 +32,12 @@ void parse_outputs_json(char* json);
  *
  */
 void init_outputs(void);
+
+/*
+ * free() all outputs data structures.
+ *
+ */
+void free_outputs(void);
 
 /*
  * Returns the output with the given name
@@ -65,5 +73,6 @@ struct i3_output {
     struct ws_head* workspaces;  /* The workspaces on this output */
     struct tc_head* trayclients; /* The tray clients on this output */
 
-    SLIST_ENTRY(i3_output) slist; /* Pointer for the SLIST-Macro */
+    SLIST_ENTRY(i3_output)
+    slist; /* Pointer for the SLIST-Macro */
 };

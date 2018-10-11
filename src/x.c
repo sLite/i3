@@ -1,5 +1,3 @@
-#undef I3__FILE__
-#define I3__FILE__ "x.c"
 /*
  * vim:ts=4:sw=4:expandtab
  *
@@ -11,6 +9,10 @@
  *
  */
 #include "all.h"
+
+#ifndef MAX
+#define MAX(x, y) ((x) > (y) ? (x) : (y))
+#endif
 
 xcb_window_t ewmh_window;
 
@@ -56,18 +58,26 @@ typedef struct con_state {
 
     char *name;
 
-    CIRCLEQ_ENTRY(con_state) state;
-    CIRCLEQ_ENTRY(con_state) old_state;
-    TAILQ_ENTRY(con_state) initial_mapping_order;
+    CIRCLEQ_ENTRY(con_state)
+    state;
+
+    CIRCLEQ_ENTRY(con_state)
+    old_state;
+
+    TAILQ_ENTRY(con_state)
+    initial_mapping_order;
 } con_state;
 
-CIRCLEQ_HEAD(state_head, con_state) state_head =
+CIRCLEQ_HEAD(state_head, con_state)
+state_head =
     CIRCLEQ_HEAD_INITIALIZER(state_head);
 
-CIRCLEQ_HEAD(old_state_head, con_state) old_state_head =
+CIRCLEQ_HEAD(old_state_head, con_state)
+old_state_head =
     CIRCLEQ_HEAD_INITIALIZER(old_state_head);
 
-TAILQ_HEAD(initial_mapping_head, con_state) initial_mapping_head =
+TAILQ_HEAD(initial_mapping_head, con_state)
+initial_mapping_head =
     TAILQ_HEAD_INITIALIZER(initial_mapping_head);
 
 /*
@@ -94,23 +104,30 @@ static con_state *state_for_frame(xcb_window_t window) {
  * every container from con_new().
  *
  */
-void x_con_init(Con *con, uint16_t depth) {
+void x_con_init(Con *con) {
     /* TODO: maybe create the window when rendering first? we could then even
      * get the initial geometry right */
 
     uint32_t mask = 0;
     uint32_t values[5];
 
-    /* For custom visuals, we need to create a colormap before creating
-     * this window. It will be freed directly after creating the window. */
-    xcb_visualid_t visual = get_visualid_by_depth(depth);
-    xcb_colormap_t win_colormap = xcb_generate_id(conn);
-    xcb_create_colormap_checked(conn, XCB_COLORMAP_ALLOC_NONE, win_colormap, root, visual);
+    xcb_visualid_t visual = get_visualid_by_depth(con->depth);
+    xcb_colormap_t win_colormap;
+    if (con->depth != root_depth) {
+        /* We need to create a custom colormap. */
+        win_colormap = xcb_generate_id(conn);
+        xcb_create_colormap(conn, XCB_COLORMAP_ALLOC_NONE, win_colormap, root, visual);
+        con->colormap = win_colormap;
+    } else {
+        /* Use the default colormap. */
+        win_colormap = colormap;
+        con->colormap = XCB_NONE;
+    }
 
     /* We explicitly set a background color and border color (even though we
      * don’t even have a border) because the X11 server requires us to when
      * using 32 bit color depths, see
-     * http://stackoverflow.com/questions/3645632 */
+     * https://stackoverflow.com/questions/3645632 */
     mask |= XCB_CW_BACK_PIXEL;
     values[0] = root_screen->black_pixel;
 
@@ -129,7 +146,7 @@ void x_con_init(Con *con, uint16_t depth) {
     values[4] = win_colormap;
 
     Rect dims = {-15, -15, 10, 10};
-    xcb_window_t frame_id = create_window(conn, dims, depth, visual, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCURSOR_CURSOR_POINTER, false, mask, values);
+    xcb_window_t frame_id = create_window(conn, dims, con->depth, visual, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCURSOR_CURSOR_POINTER, false, mask, values);
     draw_util_surface_init(conn, &(con->frame), frame_id, get_visualtype_by_id(visual), dims.width, dims.height);
     xcb_change_property(conn,
                         XCB_PROP_MODE_REPLACE,
@@ -139,9 +156,6 @@ void x_con_init(Con *con, uint16_t depth) {
                         8,
                         (strlen("i3-frame") + 1) * 2,
                         "i3-frame\0i3-frame\0");
-
-    if (win_colormap != XCB_NONE)
-        xcb_free_colormap(conn, win_colormap);
 
     struct con_state *state = scalloc(1, sizeof(struct con_state));
     state->id = con->frame.id;
@@ -224,6 +238,10 @@ void x_move_win(Con *src, Con *dest) {
  */
 void x_con_kill(Con *con) {
     con_state *state;
+
+    if (con->colormap != XCB_NONE) {
+        xcb_free_colormap(conn, con->colormap);
+    }
 
     draw_util_surface_free(conn, &(con->frame));
     draw_util_surface_free(conn, &(con->frame_buffer));
@@ -312,10 +330,10 @@ static void x_draw_title_border(Con *con, struct deco_render_params *p) {
         deco_diff_r = 0;
     }
 
-    draw_util_rectangle(conn, &(con->parent->frame_buffer), p->color->border,
+    draw_util_rectangle(&(con->parent->frame_buffer), p->color->border,
                         dr->x, dr->y, dr->width, 1);
 
-    draw_util_rectangle(conn, &(con->parent->frame_buffer), p->color->border,
+    draw_util_rectangle(&(con->parent->frame_buffer), p->color->border,
                         dr->x + deco_diff_l, dr->y + dr->height - 1, dr->width - (deco_diff_l + deco_diff_r), 1);
 }
 
@@ -323,23 +341,30 @@ static void x_draw_decoration_after_title(Con *con, struct deco_render_params *p
     assert(con->parent != NULL);
 
     Rect *dr = &(con->deco_rect);
-    Rect br = con_border_style_rect(con);
 
     /* Redraw the right border to cut off any text that went past it.
      * This is necessary when the text was drawn using XCB since cutting text off
      * automatically does not work there. For pango rendering, this isn't necessary. */
-    draw_util_rectangle(conn, &(con->parent->frame_buffer), p->color->background,
-                        dr->x + dr->width + br.width, dr->y, -br.width, dr->height);
+    if (!font_is_pango()) {
+        /* We actually only redraw the far right two pixels as that is the
+         * distance we keep from the edge (not the entire border width).
+         * Redrawing the entire border would cause text to be cut off. */
+        draw_util_rectangle(&(con->parent->frame_buffer), p->color->background,
+                            dr->x + dr->width - 2 * logical_px(1),
+                            dr->y,
+                            2 * logical_px(1),
+                            dr->height);
+    }
 
     /* Draw a 1px separator line before and after every tab, so that tabs can
      * be easily distinguished. */
     if (con->parent->layout == L_TABBED) {
         /* Left side */
-        draw_util_rectangle(conn, &(con->parent->frame_buffer), p->color->border,
+        draw_util_rectangle(&(con->parent->frame_buffer), p->color->border,
                             dr->x, dr->y, 1, dr->height);
 
         /* Right side */
-        draw_util_rectangle(conn, &(con->parent->frame_buffer), p->color->border,
+        draw_util_rectangle(&(con->parent->frame_buffer), p->color->border,
                             dr->x + dr->width - 1, dr->y, 1, dr->height);
     }
 
@@ -433,16 +458,16 @@ void x_draw_decoration(Con *con) {
     /* 2: draw the client.background, but only for the parts around the window_rect */
     if (con->window != NULL) {
         /* top area */
-        draw_util_rectangle(conn, &(con->frame_buffer), config.client.background,
+        draw_util_rectangle(&(con->frame_buffer), config.client.background,
                             0, 0, r->width, w->y);
         /* bottom area */
-        draw_util_rectangle(conn, &(con->frame_buffer), config.client.background,
+        draw_util_rectangle(&(con->frame_buffer), config.client.background,
                             0, w->y + w->height, r->width, r->height - (w->y + w->height));
         /* left area */
-        draw_util_rectangle(conn, &(con->frame_buffer), config.client.background,
+        draw_util_rectangle(&(con->frame_buffer), config.client.background,
                             0, 0, w->x, r->height);
         /* right area */
-        draw_util_rectangle(conn, &(con->frame_buffer), config.client.background,
+        draw_util_rectangle(&(con->frame_buffer), config.client.background,
                             w->x + w->width, 0, r->width - (w->x + w->width), r->height);
     }
 
@@ -453,32 +478,27 @@ void x_draw_decoration(Con *con) {
         borders_to_hide = con_adjacent_borders(con) & config.hide_edge_borders;
 
         Rect br = con_border_style_rect(con);
-#if 0
-        DLOG("con->rect spans %d x %d\n", con->rect.width, con->rect.height);
-        DLOG("border_rect spans (%d, %d) with %d x %d\n", br.x, br.y, br.width, br.height);
-        DLOG("window_rect spans (%d, %d) with %d x %d\n", con->window_rect.x, con->window_rect.y, con->window_rect.width, con->window_rect.height);
-#endif
 
         /* These rectangles represent the border around the child window
          * (left, bottom and right part). We don’t just fill the whole
          * rectangle because some childs are not freely resizable and we want
          * their background color to "shine through". */
         if (!(borders_to_hide & ADJ_LEFT_SCREEN_EDGE)) {
-            draw_util_rectangle(conn, &(con->frame_buffer), p->color->child_border, 0, 0, br.x, r->height);
+            draw_util_rectangle(&(con->frame_buffer), p->color->child_border, 0, 0, br.x, r->height);
         }
         if (!(borders_to_hide & ADJ_RIGHT_SCREEN_EDGE)) {
-            draw_util_rectangle(conn, &(con->frame_buffer),
+            draw_util_rectangle(&(con->frame_buffer),
                                 p->color->child_border, r->width + (br.width + br.x), 0,
                                 -(br.width + br.x), r->height);
         }
         if (!(borders_to_hide & ADJ_LOWER_SCREEN_EDGE)) {
-            draw_util_rectangle(conn, &(con->frame_buffer),
+            draw_util_rectangle(&(con->frame_buffer),
                                 p->color->child_border, br.x, r->height + (br.height + br.y),
                                 r->width + br.width, -(br.height + br.y));
         }
         /* pixel border needs an additional line at the top */
         if (p->border_style == BS_PIXEL && !(borders_to_hide & ADJ_UPPER_SCREEN_EDGE)) {
-            draw_util_rectangle(conn, &(con->frame_buffer),
+            draw_util_rectangle(&(con->frame_buffer),
                                 p->color->child_border, br.x, 0, r->width + br.width, br.y);
         }
 
@@ -490,10 +510,10 @@ void x_draw_decoration(Con *con) {
             TAILQ_PREV(con, nodes_head, nodes) == NULL &&
             con->parent->type != CT_FLOATING_CON) {
             if (p->parent_layout == L_SPLITH) {
-                draw_util_rectangle(conn, &(con->frame_buffer), p->color->indicator,
+                draw_util_rectangle(&(con->frame_buffer), p->color->indicator,
                                     r->width + (br.width + br.x), br.y, -(br.width + br.x), r->height + br.height);
             } else if (p->parent_layout == L_SPLITV) {
-                draw_util_rectangle(conn, &(con->frame_buffer), p->color->indicator,
+                draw_util_rectangle(&(con->frame_buffer), p->color->indicator,
                                     br.x, r->height + (br.height + br.y), r->width + br.width, -(br.height + br.y));
             }
         }
@@ -513,12 +533,12 @@ void x_draw_decoration(Con *con) {
      * garbage left on there. This is important to avoid tearing when using
      * transparency. */
     if (con == TAILQ_FIRST(&(con->parent->nodes_head))) {
-        draw_util_clear_surface(conn, &(con->parent->frame_buffer), COLOR_TRANSPARENT);
+        draw_util_clear_surface(&(con->parent->frame_buffer), COLOR_TRANSPARENT);
         FREE(con->parent->deco_render_params);
     }
 
     /* 4: paint the bar */
-    draw_util_rectangle(conn, &(parent->frame_buffer), p->color->background,
+    draw_util_rectangle(&(parent->frame_buffer), p->color->background,
                         con->deco_rect.x, con->deco_rect.y, con->deco_rect.width, con->deco_rect.height);
 
     /* 5: draw two unconnected horizontal lines in border color */
@@ -544,32 +564,13 @@ void x_draw_decoration(Con *con) {
 
         draw_util_text(title, &(parent->frame_buffer),
                        p->color->text, p->color->background,
-                       con->deco_rect.x + 2, con->deco_rect.y + text_offset_y,
-                       con->deco_rect.width - 2);
+                       con->deco_rect.x + logical_px(2),
+                       con->deco_rect.y + text_offset_y,
+                       con->deco_rect.width - 2 * logical_px(2));
         I3STRING_FREE(title);
 
         goto after_title;
     }
-
-    if (win->name == NULL)
-        goto copy_pixmaps;
-
-    int indent_level = 0,
-        indent_mult = 0;
-    Con *il_parent = parent;
-    if (il_parent->layout != L_STACKED) {
-        while (1) {
-            //DLOG("il_parent = %p, layout = %d\n", il_parent, il_parent->layout);
-            if (il_parent->layout == L_STACKED)
-                indent_level++;
-            if (il_parent->type == CT_WORKSPACE || il_parent->type == CT_DOCKAREA || il_parent->type == CT_OUTPUT)
-                break;
-            il_parent = il_parent->parent;
-            indent_mult++;
-        }
-    }
-    //DLOG("indent_level = %d, indent_mult = %d\n", indent_level, indent_mult);
-    int indent_px = (indent_level * 5) * indent_mult;
 
     int mark_width = 0;
     if (config.show_marks && !TAILQ_EMPTY(&(con->marks_head))) {
@@ -604,17 +605,24 @@ void x_draw_decoration(Con *con) {
     }
 
     i3String *title = con->title_format == NULL ? win->name : con_parse_title_format(con);
+    if (title == NULL) {
+        goto copy_pixmaps;
+    }
+
     draw_util_text(title, &(parent->frame_buffer),
                    p->color->text, p->color->background,
-                   con->deco_rect.x + logical_px(2) + indent_px, con->deco_rect.y + text_offset_y,
-                   con->deco_rect.width - logical_px(2) - indent_px - mark_width - logical_px(2));
-    if (con->title_format != NULL)
+                   con->deco_rect.x + logical_px(2),
+                   con->deco_rect.y + text_offset_y,
+                   con->deco_rect.width - mark_width - 2 * logical_px(2));
+
+    if (con->title_format != NULL) {
         I3STRING_FREE(title);
+    }
 
 after_title:
     x_draw_decoration_after_title(con, p);
 copy_pixmaps:
-    draw_util_copy_surface(conn, &(con->frame_buffer), &(con->frame), 0, 0, 0, 0, con->rect.width, con->rect.height);
+    draw_util_copy_surface(&(con->frame_buffer), &(con->frame), 0, 0, 0, 0, con->rect.width, con->rect.height);
 }
 
 /*
@@ -637,7 +645,7 @@ void x_deco_recurse(Con *con) {
         x_deco_recurse(current);
 
         if (state->mapped) {
-            draw_util_copy_surface(conn, &(con->frame_buffer), &(con->frame), 0, 0, 0, 0, con->rect.width, con->rect.height);
+            draw_util_copy_surface(&(con->frame_buffer), &(con->frame), 0, 0, 0, 0, con->rect.width, con->rect.height);
         }
     }
 
@@ -790,7 +798,7 @@ void x_push_node(Con *con) {
             int width = MAX((int32_t)rect.width, 1);
             int height = MAX((int32_t)rect.height, 1);
 
-            xcb_create_pixmap_checked(conn, win_depth, con->frame_buffer.id, con->frame.id, width, height);
+            xcb_create_pixmap(conn, win_depth, con->frame_buffer.id, con->frame.id, width, height);
             draw_util_surface_init(conn, &(con->frame_buffer), con->frame_buffer.id,
                                    get_visualtype_by_id(get_visualid_by_depth(win_depth)), width, height);
 
@@ -824,7 +832,7 @@ void x_push_node(Con *con) {
         xcb_flush(conn);
         xcb_set_window_rect(conn, con->frame.id, rect);
         if (con->frame_buffer.id != XCB_NONE) {
-            draw_util_copy_surface(conn, &(con->frame_buffer), &(con->frame), 0, 0, 0, 0, con->rect.width, con->rect.height);
+            draw_util_copy_surface(&(con->frame_buffer), &(con->frame), 0, 0, 0, 0, con->rect.width, con->rect.height);
         }
         xcb_flush(conn);
 
@@ -876,7 +884,7 @@ void x_push_node(Con *con) {
 
         /* copy the pixmap contents to the frame window immediately after mapping */
         if (con->frame_buffer.id != XCB_NONE) {
-            draw_util_copy_surface(conn, &(con->frame_buffer), &(con->frame), 0, 0, 0, 0, con->rect.width, con->rect.height);
+            draw_util_copy_surface(&(con->frame_buffer), &(con->frame), 0, 0, 0, 0, con->rect.width, con->rect.height);
         }
         xcb_flush(conn);
 
@@ -896,8 +904,9 @@ void x_push_node(Con *con) {
     /* Handle all children and floating windows of this node. We recurse
      * in focus order to display the focused client in a stack first when
      * switching workspaces (reduces flickering). */
-    TAILQ_FOREACH(current, &(con->focus_head), focused)
-    x_push_node(current);
+    TAILQ_FOREACH(current, &(con->focus_head), focused) {
+        x_push_node(current);
+    }
 }
 
 /*
@@ -1124,7 +1133,7 @@ void x_push_changes(Con *con) {
                     values[0] = CHILD_EVENT_MASK & ~(XCB_EVENT_MASK_FOCUS_CHANGE);
                     xcb_change_window_attributes(conn, focused->window->id, XCB_CW_EVENT_MASK, values);
                 }
-                xcb_set_input_focus(conn, XCB_INPUT_FOCUS_POINTER_ROOT, to_focus, XCB_CURRENT_TIME);
+                xcb_set_input_focus(conn, XCB_INPUT_FOCUS_POINTER_ROOT, to_focus, last_timestamp);
                 if (focused->window != NULL) {
                     values[0] = CHILD_EVENT_MASK;
                     xcb_change_window_attributes(conn, focused->window->id, XCB_CW_EVENT_MASK, values);
@@ -1144,7 +1153,7 @@ void x_push_changes(Con *con) {
         /* If we still have no window to focus, we focus the EWMH window instead. We use this rather than the
          * root window in order to avoid an X11 fallback mechanism causing a ghosting effect (see #1378). */
         DLOG("Still no window focused, better set focus to the EWMH support window (%d)\n", ewmh_window);
-        xcb_set_input_focus(conn, XCB_INPUT_FOCUS_POINTER_ROOT, ewmh_window, XCB_CURRENT_TIME);
+        xcb_set_input_focus(conn, XCB_INPUT_FOCUS_POINTER_ROOT, ewmh_window, last_timestamp);
         ewmh_update_active_window(XCB_WINDOW_NONE);
         focused_id = ewmh_window;
     }
@@ -1218,9 +1227,13 @@ void x_set_name(Con *con, const char *name) {
  *
  */
 void update_shmlog_atom() {
-    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root,
-                        A_I3_SHMLOG_PATH, A_UTF8_STRING, 8,
-                        strlen(shmlogname), shmlogname);
+    if (*shmlogname == '\0') {
+        xcb_delete_property(conn, root, A_I3_SHMLOG_PATH);
+    } else {
+        xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root,
+                            A_I3_SHMLOG_PATH, A_UTF8_STRING, 8,
+                            strlen(shmlogname), shmlogname);
+    }
 }
 
 /*

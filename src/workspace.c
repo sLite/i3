@@ -1,5 +1,3 @@
-#undef I3__FILE__
-#define I3__FILE__ "workspace.c"
 /*
  * vim:ts=4:sw=4:expandtab
  *
@@ -190,7 +188,7 @@ Con *create_workspace_on_output(Output *output, Con *content) {
         struct Workspace_Assignment *assignment;
         TAILQ_FOREACH(assignment, &ws_assignments, ws_assignments) {
             if (strcmp(assignment->name, target_name) != 0 ||
-                strcmp(assignment->output, output->name) == 0)
+                strcmp(assignment->output, output_primary_name(output)) == 0)
                 continue;
 
             assigned = true;
@@ -461,6 +459,11 @@ static void _workspace_show(Con *workspace) {
 
             y(free);
 
+            /* Avoid calling output_push_sticky_windows later with a freed container. */
+            if (old == old_focus) {
+                old_focus = NULL;
+            }
+
             ewmh_update_number_of_desktops();
             ewmh_update_desktop_names();
             ewmh_update_desktop_viewport();
@@ -525,7 +528,7 @@ Con *workspace_next(void) {
                     continue;
                 if (!first)
                     first = child;
-                if (!first_opposite && child->num != -1)
+                if (!first_opposite || (child->num != -1 && child->num < first_opposite->num))
                     first_opposite = child;
                 if (child == current) {
                     found_current = true;
@@ -544,7 +547,7 @@ Con *workspace_next(void) {
             NODES_FOREACH(output_get_content(output)) {
                 if (child->type != CT_WORKSPACE)
                     continue;
-                if (!first)
+                if (!first || (child->num != -1 && child->num < first->num))
                     first = child;
                 if (!first_opposite && child->num == -1)
                     first_opposite = child;
@@ -590,13 +593,13 @@ Con *workspace_prev(void) {
                         continue;
                     if (!last)
                         last = child;
-                    if (!first_opposite && child->num != -1)
+                    if (!first_opposite || (child->num != -1 && child->num > first_opposite->num))
                         first_opposite = child;
                     if (child == current) {
                         found_current = true;
                     } else if (child->num == -1 && found_current) {
                         prev = child;
-                        goto workspace_prev_end;
+                        return prev;
                     }
                 }
             }
@@ -610,7 +613,7 @@ Con *workspace_prev(void) {
             NODES_FOREACH_REVERSE(output_get_content(output)) {
                 if (child->type != CT_WORKSPACE)
                     continue;
-                if (!last)
+                if (!last || (child->num != -1 && last->num < child->num))
                     last = child;
                 if (!first_opposite && child->num == -1)
                     first_opposite = child;
@@ -628,7 +631,6 @@ Con *workspace_prev(void) {
     if (!prev)
         prev = first_opposite ? first_opposite : last;
 
-workspace_prev_end:
     return prev;
 }
 
@@ -813,15 +815,18 @@ void ws_force_orientation(Con *ws, orientation_t orientation) {
     /* 2: copy layout from workspace */
     split->layout = ws->layout;
 
-    Con *old_focused = TAILQ_FIRST(&(ws->focus_head));
-
     /* 3: move the existing cons of this workspace below the new con */
+    Con **focus_order = get_focus_order(ws);
+
     DLOG("Moving cons\n");
     while (!TAILQ_EMPTY(&(ws->nodes_head))) {
         Con *child = TAILQ_FIRST(&(ws->nodes_head));
         con_detach(child);
         con_attach(child, split, true);
     }
+
+    set_focus_order(split, focus_order);
+    free(focus_order);
 
     /* 4: switch workspace layout */
     ws->layout = (orientation == HORIZ) ? L_SPLITH : L_SPLITV;
@@ -833,9 +838,6 @@ void ws_force_orientation(Con *ws, orientation_t orientation) {
 
     /* 6: fix the percentages */
     con_fix_percent(ws);
-
-    if (old_focused)
-        con_focus(old_focused);
 }
 
 /*
@@ -890,15 +892,19 @@ Con *workspace_encapsulate(Con *ws) {
     new->parent = ws;
     new->layout = ws->layout;
 
+    Con **focus_order = get_focus_order(ws);
+
     DLOG("Moving children of workspace %p / %s into container %p\n",
          ws, ws->name, new);
-
     Con *child;
     while (!TAILQ_EMPTY(&(ws->nodes_head))) {
         child = TAILQ_FIRST(&(ws->nodes_head));
         con_detach(child);
         con_attach(child, new, true);
     }
+
+    set_focus_order(new, focus_order);
+    free(focus_order);
 
     con_attach(new, ws, true);
 
@@ -912,17 +918,12 @@ Con *workspace_encapsulate(Con *ws) {
 bool workspace_move_to_output(Con *ws, const char *name) {
     LOG("Trying to move workspace %p / %s to output \"%s\".\n", ws, ws->name, name);
 
-    Con *current_output_con = con_get_output(ws);
-    if (!current_output_con) {
-        ELOG("Could not get the output container for workspace %p / %s.\n", ws, ws->name);
-        return false;
-    }
-
-    Output *current_output = get_output_by_name(current_output_con->name);
-    if (!current_output) {
+    Output *current_output = get_output_for_con(ws);
+    if (current_output == NULL) {
         ELOG("Cannot get current output. This is a bug in i3.\n");
         return false;
     }
+
     Output *output = get_output_from_string(current_output, name);
     if (!output) {
         ELOG("Could not get output from string \"%s\"\n", name);
@@ -943,7 +944,7 @@ bool workspace_move_to_output(Con *ws, const char *name) {
         bool used_assignment = false;
         struct Workspace_Assignment *assignment;
         TAILQ_FOREACH(assignment, &ws_assignments, ws_assignments) {
-            if (assignment->output == NULL || strcmp(assignment->output, current_output->name) != 0)
+            if (assignment->output == NULL || strcmp(assignment->output, output_primary_name(current_output)) != 0)
                 continue;
 
             /* check if this workspace is already attached to the tree */

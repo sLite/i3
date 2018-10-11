@@ -8,6 +8,8 @@
  *                  to i3.
  *
  */
+#include "libi3.h"
+
 #include <stdio.h>
 #include <sys/types.h>
 #include <stdlib.h>
@@ -31,19 +33,19 @@
 
 #include "i3-input.h"
 
-#include "libi3.h"
+#define MAX_WIDTH logical_px(500)
+#define BORDER logical_px(2)
+#define PADDING logical_px(2)
 
 /* IPC format string. %s will be replaced with what the user entered, then
  * the command will be sent to i3 */
 static char *format;
 
-static char *socket_path;
 static int sockfd;
 static xcb_key_symbols_t *symbols;
 static bool modeswitch_active = false;
 static xcb_window_t win;
-static xcb_pixmap_t pixmap;
-static xcb_gcontext_t pixmap_gc;
+static surface_t surface;
 static xcb_char2b_t glyphs_ucs[512];
 static char *glyphs_utf8[512];
 static int input_position;
@@ -54,7 +56,6 @@ static int limit;
 xcb_window_t root;
 xcb_connection_t *conn;
 xcb_screen_t *root_screen;
-static xcb_get_input_focus_cookie_t focus_cookie;
 
 /*
  * Having verboselog(), errorlog() and debuglog() is necessary when using libi3.
@@ -77,24 +78,6 @@ void errorlog(char *fmt, ...) {
 }
 
 void debuglog(char *fmt, ...) {
-}
-
-/*
- * Restores the X11 input focus to whereever it was before.
- * This is necessary because i3-input’s window has override_redirect=1
- * (→ unmanaged by the window manager) and thus i3-input changes focus itself.
- * This function is called on exit().
- *
- */
-static void restore_input_focus(void) {
-    xcb_generic_error_t *error;
-    xcb_get_input_focus_reply_t *reply = xcb_get_input_focus_reply(conn, focus_cookie, &error);
-    if (error != NULL) {
-        fprintf(stderr, "[i3-input] ERROR: Could not restore input focus (X error %d)\n", error->error_code);
-        return;
-    }
-    xcb_set_input_focus(conn, XCB_INPUT_FOCUS_POINTER_ROOT, reply->focus, XCB_CURRENT_TIME);
-    xcb_flush(conn);
 }
 
 /*
@@ -128,30 +111,30 @@ static uint8_t *concat_strings(char **glyphs, int max) {
 static int handle_expose(void *data, xcb_connection_t *conn, xcb_expose_event_t *event) {
     printf("expose!\n");
 
-    /* re-draw the background */
-    xcb_rectangle_t border = {0, 0, logical_px(500), font.height + logical_px(8)},
-                    inner = {logical_px(2), logical_px(2), logical_px(496), font.height + logical_px(8) - logical_px(4)};
-    xcb_change_gc(conn, pixmap_gc, XCB_GC_FOREGROUND, (uint32_t[]){get_colorpixel("#FF0000")});
-    xcb_poly_fill_rectangle(conn, pixmap, pixmap_gc, 1, &border);
-    xcb_change_gc(conn, pixmap_gc, XCB_GC_FOREGROUND, (uint32_t[]){get_colorpixel("#000000")});
-    xcb_poly_fill_rectangle(conn, pixmap, pixmap_gc, 1, &inner);
+    color_t border_color = draw_util_hex_to_color("#FF0000");
+    color_t fg_color = draw_util_hex_to_color("#FFFFFF");
+    color_t bg_color = draw_util_hex_to_color("#000000");
 
-    /* restore font color */
-    set_font_colors(pixmap_gc, draw_util_hex_to_color("#FFFFFF"), draw_util_hex_to_color("#000000"));
+    int text_offset = BORDER + PADDING;
+
+    /* draw border */
+    draw_util_rectangle(&surface, border_color, 0, 0, surface.width, surface.height);
+
+    /* draw background */
+    draw_util_rectangle(&surface, bg_color, BORDER, BORDER, surface.width - 2 * BORDER, surface.height - 2 * BORDER);
 
     /* draw the prompt … */
     if (prompt != NULL) {
-        draw_text(prompt, pixmap, pixmap_gc, NULL, logical_px(4), logical_px(4), logical_px(492));
+        draw_util_text(prompt, &surface, fg_color, bg_color, text_offset, text_offset, MAX_WIDTH - text_offset);
     }
+
     /* … and the text */
     if (input_position > 0) {
         i3String *input = i3string_from_ucs2(glyphs_ucs, input_position);
-        draw_text(input, pixmap, pixmap_gc, NULL, prompt_offset + logical_px(4), logical_px(4), logical_px(492));
+        draw_util_text(input, &surface, fg_color, bg_color, text_offset + prompt_offset, text_offset, MAX_WIDTH - text_offset);
         i3string_free(input);
     }
 
-    /* Copy the contents of the pixmap to the real window */
-    xcb_copy_area(conn, pixmap, win, pixmap_gc, 0, 0, 0, 0, logical_px(500), font.height + logical_px(8));
     xcb_flush(conn);
 
     return 1;
@@ -208,18 +191,10 @@ static void finish_input() {
     /* prefix the command if a prefix was specified on commandline */
     printf("command = %s\n", full);
 
-    restore_input_focus();
-
-    xcb_aux_sync(conn);
-
     ipc_send_message(sockfd, strlen(full), 0, (uint8_t *)full);
 
     free(full);
 
-#if 0
-    free(command);
-    return 1;
-#endif
     exit(0);
 }
 
@@ -269,7 +244,6 @@ static int handle_key_press(void *ignored, xcb_connection_t *conn, xcb_key_press
         return 1;
     }
     if (sym == XK_Escape) {
-        restore_input_focus();
         exit(0);
     }
 
@@ -315,11 +289,32 @@ static int handle_key_press(void *ignored, xcb_connection_t *conn, xcb_key_press
 }
 
 static xcb_rectangle_t get_window_position(void) {
-    xcb_rectangle_t result = (xcb_rectangle_t){logical_px(50), logical_px(50), logical_px(500), font.height + logical_px(8)};
+    xcb_rectangle_t result = (xcb_rectangle_t){logical_px(50), logical_px(50), MAX_WIDTH, font.height + 2 * BORDER + 2 * PADDING};
 
+    xcb_get_property_reply_t *supporting_wm_reply = NULL;
     xcb_get_input_focus_reply_t *input_focus = NULL;
     xcb_get_geometry_reply_t *geometry = NULL;
+    xcb_get_property_reply_t *wm_class = NULL;
     xcb_translate_coordinates_reply_t *coordinates = NULL;
+
+    xcb_atom_t A__NET_SUPPORTING_WM_CHECK;
+    xcb_intern_atom_cookie_t nswc_cookie = xcb_intern_atom(conn, 0, strlen("_NET_SUPPORTING_WM_CHECK"), "_NET_SUPPORTING_WM_CHECK");
+    xcb_intern_atom_reply_t *nswc_reply = xcb_intern_atom_reply(conn, nswc_cookie, NULL);
+    if (nswc_reply == NULL) {
+        ELOG("Could not intern atom _NET_SUPPORTING_WM_CHECK\n");
+        exit(-1);
+    }
+    A__NET_SUPPORTING_WM_CHECK = nswc_reply->atom;
+    free(nswc_reply);
+
+    supporting_wm_reply = xcb_get_property_reply(
+        conn, xcb_get_property(conn, false, root, A__NET_SUPPORTING_WM_CHECK, XCB_ATOM_WINDOW, 0, 32), NULL);
+    xcb_window_t *supporting_wm_win = NULL;
+    if (supporting_wm_reply == NULL || xcb_get_property_value_length(supporting_wm_reply) == 0) {
+        DLOG("Could not determine EWMH support window.\n");
+    } else {
+        supporting_wm_win = xcb_get_property_value(supporting_wm_reply);
+    }
 
     /* In rare cases, the window holding the input focus might disappear while we are figuring out its
      * position. To avoid this, we grab the server in the meantime. */
@@ -331,36 +326,54 @@ static xcb_rectangle_t get_window_position(void) {
         goto free_resources;
     }
 
+    /* We need to ignore the EWMH support window to which the focus can be set if there's no suitable window to focus. */
+    if (supporting_wm_win != NULL && input_focus->focus == *supporting_wm_win) {
+        DLOG("Input focus is on the EWMH support window, ignoring.\n");
+        goto free_resources;
+    }
+
     geometry = xcb_get_geometry_reply(conn, xcb_get_geometry(conn, input_focus->focus), NULL);
     if (geometry == NULL) {
         DLOG("Failed to received window geometry.\n");
         goto free_resources;
     }
 
-    coordinates = xcb_translate_coordinates_reply(
-        conn, xcb_translate_coordinates(conn, input_focus->focus, root, geometry->x, geometry->y), NULL);
-    if (coordinates == NULL) {
-        DLOG("Failed to translate coordinates.\n");
-        goto free_resources;
-    }
+    wm_class = xcb_get_property_reply(
+        conn, xcb_get_property(conn, false, input_focus->focus, XCB_ATOM_WM_CLASS, XCB_GET_PROPERTY_TYPE_ANY, 0, 32), NULL);
 
-    DLOG("Determined coordinates of window with input focus at x = %i / y = %i.\n", coordinates->dst_x, coordinates->dst_y);
-    result.x += coordinates->dst_x;
-    result.y += coordinates->dst_y;
+    /* We need to find out whether the input focus is on an i3 frame window. If it is, we must not translate the coordinates. */
+    if (wm_class == NULL || xcb_get_property_value_length(wm_class) == 0 || strcmp(xcb_get_property_value(wm_class), "i3-frame") != 0) {
+        coordinates = xcb_translate_coordinates_reply(
+            conn, xcb_translate_coordinates(conn, input_focus->focus, root, geometry->x, geometry->y), NULL);
+        if (coordinates == NULL) {
+            DLOG("Failed to translate coordinates.\n");
+            goto free_resources;
+        }
+
+        DLOG("Determined coordinates of window with input focus at x = %i / y = %i.\n", coordinates->dst_x, coordinates->dst_y);
+        result.x += coordinates->dst_x;
+        result.y += coordinates->dst_y;
+    } else {
+        DLOG("Determined coordinates of window with input focus at x = %i / y = %i.\n", geometry->x, geometry->y);
+        result.x += geometry->x;
+        result.y += geometry->y;
+    }
 
 free_resources:
     xcb_ungrab_server(conn);
     xcb_flush(conn);
 
+    FREE(supporting_wm_reply);
     FREE(input_focus);
     FREE(geometry);
+    FREE(wm_class);
     FREE(coordinates);
     return result;
 }
 
 int main(int argc, char *argv[]) {
     format = sstrdup("%s");
-    socket_path = getenv("I3SOCK");
+    char *socket_path = NULL;
     char *pattern = sstrdup("pango:monospace 8");
     int o, option_index = 0;
 
@@ -424,22 +437,14 @@ int main(int argc, char *argv[]) {
     if (!conn || xcb_connection_has_error(conn))
         die("Cannot open display\n");
 
-    if (socket_path == NULL)
-        socket_path = root_atom_contents("I3_SOCKET_PATH", conn, screen);
-
-    if (socket_path == NULL)
-        socket_path = "/tmp/i3-ipc.sock";
-
     sockfd = ipc_connect(socket_path);
-
-    /* Request the current InputFocus to restore when i3-input exits. */
-    focus_cookie = xcb_get_input_focus(conn);
 
     root_screen = xcb_aux_get_screen(conn, screen);
     root = root_screen->root;
 
     symbols = xcb_key_symbols_alloc(conn);
 
+    init_dpi();
     font = load_font(pattern, true);
     set_font(&font);
 
@@ -468,15 +473,8 @@ int main(int argc, char *argv[]) {
     /* Map the window (make it visible) */
     xcb_map_window(conn, win);
 
-    /* Create pixmap */
-    pixmap = xcb_generate_id(conn);
-    pixmap_gc = xcb_generate_id(conn);
-    xcb_create_pixmap(conn, root_screen->root_depth, pixmap, win, logical_px(500), font.height + logical_px(8));
-    xcb_create_gc(conn, pixmap_gc, pixmap, 0, 0);
-
-    /* Set input focus (we have override_redirect=1, so the wm will not do
-     * this for us) */
-    xcb_set_input_focus(conn, XCB_INPUT_FOCUS_POINTER_ROOT, win, XCB_CURRENT_TIME);
+    /* Initialize the drawable surface */
+    draw_util_surface_init(conn, &surface, win, get_visualtype(root_screen), win_pos.width, win_pos.height);
 
     /* Grab the keyboard to get all input */
     xcb_flush(conn);
@@ -496,7 +494,6 @@ int main(int argc, char *argv[]) {
 
     if (reply->status != XCB_GRAB_STATUS_SUCCESS) {
         fprintf(stderr, "Could not grab keyboard, status = %d\n", reply->status);
-        restore_input_focus();
         exit(-1);
     }
 
@@ -522,12 +519,16 @@ int main(int argc, char *argv[]) {
                 break;
 
             case XCB_EXPOSE:
-                handle_expose(NULL, conn, (xcb_expose_event_t *)event);
+                if (((xcb_expose_event_t *)event)->count == 0) {
+                    handle_expose(NULL, conn, (xcb_expose_event_t *)event);
+                }
+
                 break;
         }
 
         free(event);
     }
 
+    draw_util_surface_free(conn, &surface);
     return 0;
 }
