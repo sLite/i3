@@ -2,13 +2,13 @@
 # vim:ts=4:sw=4:expandtab
 #
 # Please read the following documents before working on tests:
-# • http://build.i3wm.org/docs/testsuite.html
+# • https://build.i3wm.org/docs/testsuite.html
 #   (or docs/testsuite)
 #
-# • http://build.i3wm.org/docs/lib-i3test.html
+# • https://build.i3wm.org/docs/lib-i3test.html
 #   (alternatively: perldoc ./testcases/lib/i3test.pm)
 #
-# • http://build.i3wm.org/docs/ipc.html
+# • https://build.i3wm.org/docs/ipc.html
 #   (or docs/ipc)
 #
 # • http://onyxneon.com/books/modern_perl/modern_perl_a4.pdf
@@ -192,7 +192,7 @@ is_num_children($third_ws, 2, 'two containers on the third workspace');
 # environment variable.
 ######################################################################
 
-mkfifo($tmp, 0600) or BAIL_OUT "Could not create FIFO in $tmp";
+mkfifo($tmp, 0600) or BAIL_OUT "Could not create FIFO in $tmp: $!";
 
 cmd qq|exec --no-startup-id echo \$DESKTOP_STARTUP_ID >$tmp|;
 
@@ -208,7 +208,7 @@ is($startup_id, '', 'startup_id empty');
 # 4) same thing, but with double quotes in exec
 ######################################################################
 
-mkfifo($tmp, 0600) or BAIL_OUT "Could not create FIFO in $tmp";
+mkfifo($tmp, 0600) or BAIL_OUT "Could not create FIFO in $tmp: $!";
 
 cmd qq|exec --no-startup-id "echo \$DESKTOP_STARTUP_ID >$tmp"|;
 

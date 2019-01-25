@@ -9,6 +9,8 @@
  */
 #pragma once
 
+#include <config.h>
+
 #include "commands_parser.h"
 
 /** The beginning of the prototype for every cmd_ function. */
@@ -61,10 +63,10 @@ void cmd_move_con_to_workspace_name(I3_CMD, const char *name, const char *no_aut
 void cmd_move_con_to_workspace_number(I3_CMD, const char *which, const char *no_auto_back_and_forth);
 
 /**
- * Implementation of 'resize set <px> [px] <px> [px]'.
+ * Implementation of 'resize set <width> [px | ppt] <height> [px | ppt]'.
  *
  */
-void cmd_resize_set(I3_CMD, long cwidth, long cheight);
+void cmd_resize_set(I3_CMD, long cwidth, const char *mode_width, long cheight, const char *mode_height);
 
 /**
  * Implementation of 'resize grow|shrink <direction> [<px> px] [or <ppt> ppt]'.
@@ -214,7 +216,7 @@ void cmd_sticky(I3_CMD, const char *action);
  * Implementation of 'move <direction> [<pixels> [px]]'.
  *
  */
-void cmd_move_direction(I3_CMD, const char *direction, long move_px);
+void cmd_move_direction(I3_CMD, const char *direction_str, long move_px);
 
 /**
  * Implementation of 'layout default|stacked|stacking|tabbed|splitv|splith'.
@@ -262,7 +264,7 @@ void cmd_focus_output(I3_CMD, const char *name);
  * Implementation of 'move [window|container] [to] [absolute] position <px> [px] <px> [px]
  *
  */
-void cmd_move_window_to_position(I3_CMD, const char *method, long x, long y);
+void cmd_move_window_to_position(I3_CMD, long x, long y);
 
 /**
  * Implementation of 'move [window|container] [to] [absolute] position center
@@ -289,6 +291,12 @@ void cmd_move_scratchpad(I3_CMD);
 void cmd_scratchpad_show(I3_CMD);
 
 /**
+ * Implementation of 'swap [container] [with] id|con_id|mark <arg>'.
+ *
+ */
+void cmd_swap(I3_CMD, const char *mode, const char *arg);
+
+/**
  * Implementation of 'title_format <format>'
  *
  */
@@ -306,13 +314,13 @@ void cmd_rename_workspace(I3_CMD, const char *old_name, const char *new_name);
  */
 void cmd_bar(I3_CMD, const char *bar_type, const char *bar_value, const char *bar_id);
 
-/*
+/**
  * Implementation of 'shmlog <size>|toggle|on|off'
  *
  */
 void cmd_shmlog(I3_CMD, const char *argument);
 
-/*
+/**
  * Implementation of 'debuglog toggle|on|off'
  *
  */

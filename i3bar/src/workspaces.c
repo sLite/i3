@@ -7,14 +7,14 @@
  * workspaces.c: Maintaining the workspace lists
  *
  */
+#include "common.h"
+
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
 #include <yajl/yajl_parse.h>
 #include <yajl/yajl_version.h>
-
-#include "common.h"
 
 /* A datatype to pass through the callbacks to save the state */
 struct workspaces_json_params {
@@ -106,8 +106,8 @@ static int workspaces_string_cb(void *params_, const unsigned char *val, size_t 
         const char *ws_name = (const char *)val;
         params->workspaces_walk->canonical_name = sstrndup(ws_name, len);
 
-        if (config.strip_ws_numbers && params->workspaces_walk->num >= 0) {
-            /* Special case: strip off the workspace number */
+        if ((config.strip_ws_numbers || config.strip_ws_name) && params->workspaces_walk->num >= 0) {
+            /* Special case: strip off the workspace number/name */
             static char ws_num[10];
 
             snprintf(ws_num, sizeof(ws_num), "%d", params->workspaces_walk->num);
@@ -119,11 +119,14 @@ static int workspaces_string_cb(void *params_, const unsigned char *val, size_t 
             if (offset && ws_name[offset] == ':')
                 offset += 1;
 
-            /* Offset may be equal to length, in which case display the number */
-            params->workspaces_walk->name = (offset < len
-                                                 ? i3string_from_markup_with_length(ws_name + offset, len - offset)
-                                                 : i3string_from_markup(ws_num));
-
+            if (config.strip_ws_numbers) {
+                /* Offset may be equal to length, in which case display the number */
+                params->workspaces_walk->name = (offset < len
+                                                     ? i3string_from_markup_with_length(ws_name + offset, len - offset)
+                                                     : i3string_from_markup(ws_num));
+            } else {
+                params->workspaces_walk->name = i3string_from_markup(ws_num);
+            }
         } else {
             /* Default case: just save the name */
             params->workspaces_walk->name = i3string_from_markup_with_length(ws_name, len);
@@ -233,7 +236,7 @@ void parse_workspaces_json(char *json) {
 
     state = yajl_parse(handle, (const unsigned char *)json, strlen(json));
 
-    /* FIXME: Propper error handling for JSON parsing */
+    /* FIXME: Proper error handling for JSON parsing */
     switch (state) {
         case yajl_status_ok:
             break;

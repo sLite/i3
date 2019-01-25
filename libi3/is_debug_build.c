@@ -1,3 +1,12 @@
+/*
+ * vim:ts=4:sw=4:expandtab
+ *
+ * i3 - an improved dynamic tiling window manager
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
+ *
+ */
+#include "libi3.h"
+
 #include <string.h>
 #include <stdbool.h>
 
@@ -6,7 +15,7 @@
  * release version), based on the git version number.
  *
  */
-bool is_debug_build() {
+bool is_debug_build(void) {
     /* i3_version contains either something like this:
      *     "4.0.2 (2011-11-11, branch "release")".
      * or: "4.0.2-123-gCOFFEEBABE (2011-11-11, branch "next")".

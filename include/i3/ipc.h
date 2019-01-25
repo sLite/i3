@@ -27,8 +27,11 @@ typedef struct i3_ipc_header {
 /** Never change this, only on major IPC breakage (don’t do that) */
 #define I3_IPC_MAGIC "i3-ipc"
 
-/** The payload of the message will be interpreted as a command */
+/** Deprecated: use I3_IPC_MESSAGE_TYPE_RUN_COMMAND */
 #define I3_IPC_MESSAGE_TYPE_COMMAND 0
+
+/** The payload of the message will be interpreted as a command */
+#define I3_IPC_MESSAGE_TYPE_RUN_COMMAND 0
 
 /** Requests the current workspaces from i3 */
 #define I3_IPC_MESSAGE_TYPE_GET_WORKSPACES 1
@@ -51,40 +54,40 @@ typedef struct i3_ipc_header {
 /** Request the i3 version */
 #define I3_IPC_MESSAGE_TYPE_GET_VERSION 7
 
+/** Request a list of configured binding modes. */
+#define I3_IPC_MESSAGE_TYPE_GET_BINDING_MODES 8
+
+/** Request the raw last loaded i3 config. */
+#define I3_IPC_MESSAGE_TYPE_GET_CONFIG 9
+
+/** Send a tick event to all subscribers. */
+#define I3_IPC_MESSAGE_TYPE_SEND_TICK 10
+
+/** Trigger an i3 sync protocol message via IPC. */
+#define I3_IPC_MESSAGE_TYPE_SYNC 11
+
 /*
  * Messages from i3 to clients
  *
  */
-
-/** Command reply type */
 #define I3_IPC_REPLY_TYPE_COMMAND 0
-
-/** Workspaces reply type */
 #define I3_IPC_REPLY_TYPE_WORKSPACES 1
-
-/** Subscription reply type */
 #define I3_IPC_REPLY_TYPE_SUBSCRIBE 2
-
-/** Outputs reply type */
 #define I3_IPC_REPLY_TYPE_OUTPUTS 3
-
-/** Tree reply type */
 #define I3_IPC_REPLY_TYPE_TREE 4
-
-/** Marks reply type */
 #define I3_IPC_REPLY_TYPE_MARKS 5
-
-/** Bar config reply type */
 #define I3_IPC_REPLY_TYPE_BAR_CONFIG 6
-
-/** i3 version reply type */
 #define I3_IPC_REPLY_TYPE_VERSION 7
+#define I3_IPC_REPLY_TYPE_BINDING_MODES 8
+#define I3_IPC_REPLY_TYPE_CONFIG 9
+#define I3_IPC_REPLY_TYPE_TICK 10
+#define I3_IPC_REPLY_TYPE_SYNC 11
 
 /*
  * Events from i3 to clients. Events have the first bit set high.
  *
  */
-#define I3_IPC_EVENT_MASK (1 << 31)
+#define I3_IPC_EVENT_MASK (1UL << 31)
 
 /* The workspace event will be triggered upon changes in the workspace list */
 #define I3_IPC_EVENT_WORKSPACE (I3_IPC_EVENT_MASK | 0)
@@ -103,3 +106,9 @@ typedef struct i3_ipc_header {
 
 /** The binding event will be triggered when bindings run */
 #define I3_IPC_EVENT_BINDING (I3_IPC_EVENT_MASK | 5)
+
+/** The shutdown event will be triggered when the ipc shuts down */
+#define I3_IPC_EVENT_SHUTDOWN (I3_IPC_EVENT_MASK | 6)
+
+/** The tick event will be sent upon a tick IPC message */
+#define I3_IPC_EVENT_TICK (I3_IPC_EVENT_MASK | 7)

@@ -9,6 +9,8 @@
  */
 #pragma once
 
+#include <config.h>
+
 /**
  * Moves the specified window to the __i3_scratch workspace, making it floating
  * and setting the appropriate scratchpad_state.
@@ -27,7 +29,7 @@ void scratchpad_move(Con *con);
  * can press the same key to quickly look something up).
  *
  */
-void scratchpad_show(Con *con);
+bool scratchpad_show(Con *con);
 
 /**
  * When starting i3 initially (and after each change to the connected outputs),

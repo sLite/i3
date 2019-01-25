@@ -9,6 +9,8 @@
  */
 #pragma once
 
+#include <config.h>
+
 #include <ev.h>
 #include <stdbool.h>
 #include <yajl/yajl_gen.h>
@@ -16,7 +18,7 @@
 
 #include "data.h"
 #include "tree.h"
-#include "config.h"
+#include "configuration.h"
 
 #include "i3/ipc.h"
 
@@ -29,7 +31,17 @@ typedef struct ipc_client {
     int num_events;
     char **events;
 
-    TAILQ_ENTRY(ipc_client) clients;
+    /* For clients which subscribe to the tick event: whether the first tick
+     * event has been sent by i3. */
+    bool first_tick_sent;
+
+    struct ev_io *callback;
+    struct ev_timer *timeout;
+    uint8_t *buffer;
+    size_t buffer_size;
+
+    TAILQ_ENTRY(ipc_client)
+    clients;
 } ipc_client;
 
 /*
@@ -74,11 +86,18 @@ int ipc_create_socket(const char *filename);
 void ipc_send_event(const char *event, uint32_t message_type, const char *payload);
 
 /**
- * Calls shutdown() on each socket and closes it. This function to be called
- * when exiting or restarting only!
+ * Calls to ipc_shutdown() should provide a reason for the shutdown.
+ */
+typedef enum {
+    SHUTDOWN_REASON_RESTART,
+    SHUTDOWN_REASON_EXIT
+} shutdown_reason_t;
+
+/**
+ * Calls shutdown() on each socket and closes it.
  *
  */
-void ipc_shutdown(void);
+void ipc_shutdown(shutdown_reason_t reason);
 
 void dump_node(yajl_gen gen, Con *con, bool inplace_restart);
 
@@ -110,3 +129,9 @@ void ipc_send_barconfig_update_event(Barconfig *barconfig);
  * For the binding events, we send the serialized binding struct.
  */
 void ipc_send_binding_event(const char *event_type, Binding *bind);
+
+/**
+  * Set the maximum duration that we allow for a connection with an unwriteable
+  * socket.
+  */
+void ipc_set_kill_timeout(ev_tstamp new);

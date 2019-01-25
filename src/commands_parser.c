@@ -1,5 +1,3 @@
-#undef I3__FILE__
-#define I3__FILE__ "commands_parser.c"
 /*
  * vim:ts=4:sw=4:expandtab
  *
@@ -25,14 +23,14 @@
  * instead of actually calling any function).
  *
  */
+#include "all.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <stdbool.h>
 #include <stdint.h>
-
-#include "all.h"
 
 // Macros to make the YAJL API a bit easier to use.
 #define y(x, ...) (command_output.json_gen != NULL ? yajl_gen_##x(command_output.json_gen, ##__VA_ARGS__) : 0)
@@ -159,7 +157,7 @@ static long get_long(const char *identifier) {
 // TODO move to a common util
 static void clear_stack(void) {
     for (int c = 0; c < 10; c++) {
-        if (stack[c].type == STACK_STR && stack[c].val.str != NULL)
+        if (stack[c].type == STACK_STR)
             free(stack[c].val.str);
         stack[c].identifier = NULL;
         stack[c].val.str = NULL;

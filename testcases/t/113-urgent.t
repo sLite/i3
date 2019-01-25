@@ -2,13 +2,13 @@
 # vim:ts=4:sw=4:expandtab
 #
 # Please read the following documents before working on tests:
-# • http://build.i3wm.org/docs/testsuite.html
+# • https://build.i3wm.org/docs/testsuite.html
 #   (or docs/testsuite)
 #
-# • http://build.i3wm.org/docs/lib-i3test.html
+# • https://build.i3wm.org/docs/lib-i3test.html
 #   (alternatively: perldoc ./testcases/lib/i3test.pm)
 #
-# • http://build.i3wm.org/docs/ipc.html
+# • https://build.i3wm.org/docs/ipc.html
 #   (or docs/ipc)
 #
 # • http://onyxneon.com/books/modern_perl/modern_perl_a4.pdf
@@ -304,7 +304,7 @@ for ($type = 1; $type <= 2; $type++) {
     cmd 'move right';
     cmd '[id="' . $w3->id . '"] focus';
     sync_with_i3;
-    my $ws = get_ws($tmp);
+    $ws = get_ws($tmp);
     ok(!$ws->{urgent}, 'urgent flag not set on workspace');
 
 ##############################################################################
@@ -331,6 +331,34 @@ for ($type = 1; $type <= 2; $type++) {
     my $target_ws = get_ws($tmp_target);
     ok(!$source_ws->{urgent}, 'Source workspace is no longer marked urgent');
     is($target_ws->{urgent}, 1, 'Target workspace is now marked urgent');
+
+##############################################################################
+# Test that moving an unfocused container doesn't reset its urgency hint.
+##############################################################################
+    $tmp = fresh_workspace;
+    $win1 = open_window;
+    $win2 = open_window;
+    cmd 'split v';
+    $win3 = open_window;
+    set_urgency($win1, 1, $type);
+    sync_with_i3;
+
+    my $win1_info;
+
+    @content = @{get_ws_content($tmp)};
+    $win1_info = first { $_->{window} == $win1->id } @content;
+    ok($win1_info->{urgent}, 'win1 window is marked urgent');
+
+    cmd '[id="' . $win1->id . '"] move right';
+    cmd '[id="' . $win1->id . '"] move right';
+    @content = @{get_ws_content($tmp)};
+    $win1_info = first { $_->{window} == $win1->id } @content;
+    ok($win1_info->{urgent}, 'win1 window is still marked urgent after moving');
+
+    cmd '[id="' . $win1->id . '"] focus';
+    @content = @{get_ws_content($tmp)};
+    $win1_info = first { $_->{window} == $win1->id } @content;
+    ok(!$win1_info->{urgent}, 'win1 window is not marked urgent after focusing');
 
 ##############################################################################
 

@@ -1,5 +1,3 @@
-#undef I3__FILE__
-#define I3__FILE__ "startup.c"
 /*
  * vim:ts=4:sw=4:expandtab
  *
@@ -13,6 +11,7 @@
  *
  */
 #include "all.h"
+
 #include "sd-daemon.h"
 
 #include <sys/types.h>
@@ -50,6 +49,7 @@ static void startup_timeout(EV_P_ ev_timer *w, int revents) {
 
     if (!sequence) {
         DLOG("Sequence already deleted, nevermind.\n");
+        free(w);
         return;
     }
 
@@ -95,7 +95,7 @@ static int _prune_startup_sequences(void) {
     return active_sequences;
 }
 
-/**
+/*
  * Deletes a startup sequence, ignoring whether its timeout has elapsed.
  * Useful when e.g. a window is moved between workspaces and its children
  * shouldn't spawn on the original workspace.
@@ -103,8 +103,8 @@ static int _prune_startup_sequences(void) {
  */
 void startup_sequence_delete(struct Startup_Sequence *sequence) {
     assert(sequence != NULL);
-    DLOG("Deleting startup sequence %s, delete_at = %ld, current_time = %ld\n",
-         sequence->id, sequence->delete_at, time(NULL));
+    DLOG("Deleting startup sequence %s, delete_at = %lld, current_time = %lld\n",
+         sequence->id, (long long)sequence->delete_at, (long long)time(NULL));
 
     /* Unref the context, will be free()d */
     sn_launcher_context_unref(sequence->context);
@@ -118,10 +118,10 @@ void startup_sequence_delete(struct Startup_Sequence *sequence) {
 }
 
 /*
- * Starts the given application by passing it through a shell. We use double fork
- * to avoid zombie processes. As the started application’s parent exits (immediately),
- * the application is reparented to init (process-id 1), which correctly handles
- * childs, so we don’t have to do it :-).
+ * Starts the given application by passing it through a shell. We use double
+ * fork to avoid zombie processes. As the started application’s parent exits
+ * (immediately), the application is reparented to init (process-id 1), which
+ * correctly handles children, so we don’t have to do it :-).
  *
  * The shell used to start applications is the system's bourne shell (i.e.,
  * /bin/sh).
@@ -191,7 +191,7 @@ void start_application(const char *command, bool no_startup_id) {
             if (!no_startup_id)
                 sn_launcher_context_setup_child_process(context);
 
-            execl(_PATH_BSHELL, _PATH_BSHELL, "-c", command, (void *)NULL);
+            execl(_PATH_BSHELL, _PATH_BSHELL, "-c", command, NULL);
             /* not reached */
         }
         _exit(0);
@@ -239,8 +239,8 @@ void startup_monitor_event(SnMonitorEvent *event, void *userdata) {
             /* Mark the given sequence for deletion in 30 seconds. */
             time_t current_time = time(NULL);
             sequence->delete_at = current_time + 30;
-            DLOG("Will delete startup sequence %s at timestamp %ld\n",
-                 sequence->id, sequence->delete_at);
+            DLOG("Will delete startup sequence %s at timestamp %lld\n",
+                 sequence->id, (long long)sequence->delete_at);
 
             if (_prune_startup_sequences() == 0) {
                 DLOG("No more startup sequences running, changing root window cursor to default pointer.\n");
@@ -257,7 +257,7 @@ void startup_monitor_event(SnMonitorEvent *event, void *userdata) {
     }
 }
 
-/**
+/*
  * Renames workspaces that are mentioned in the startup sequences.
  *
  */
@@ -273,7 +273,7 @@ void startup_sequence_rename_workspace(const char *old_name, const char *new_nam
     }
 }
 
-/**
+/*
  * Gets the stored startup sequence for the _NET_STARTUP_ID of a given window.
  *
  */

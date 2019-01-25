@@ -1,5 +1,3 @@
-#undef I3__FILE__
-#define I3__FILE__ "render.c"
 /*
  * vim:ts=4:sw=4:expandtab
  *
@@ -71,10 +69,10 @@ void render_con(Con *con, bool render_fullscreen) {
          * The spec isn’t explicit on whether the aspect ratio hints should be
          * respected during fullscreen mode. Other WMs such as Openbox don’t do
          * that, and this post suggests that this is the correct way to do it:
-         * http://mail.gnome.org/archives/wm-spec-list/2003-May/msg00007.html
+         * https://mail.gnome.org/archives/wm-spec-list/2003-May/msg00007.html
          *
          * Ignoring aspect ratio during fullscreen was necessary to fix MPlayer
-         * subtitle rendering, see http://bugs.i3wm.org/594 */
+         * subtitle rendering, see https://bugs.i3wm.org/594 */
         if (!render_fullscreen && con->window->aspect_ratio > 0.0) {
             DLOG("aspect_ratio = %f, current width/height are %d/%d\n",
                  con->window->aspect_ratio, inset->width, inset->height);
@@ -99,7 +97,7 @@ void render_con(Con *con, bool render_fullscreen) {
          * windows up until commit 0db93d9 here. However, since all terminal
          * emulators cope with ignoring the size hints in a better way than we
          * can (by providing their fake-transparency or background color), this
-         * code was removed. See also http://bugs.i3wm.org/540 */
+         * code was removed. See also https://bugs.i3wm.org/540 */
 
         DLOG("child will be at %dx%d with size %dx%d\n", inset->x, inset->y, inset->width, inset->height);
     }
@@ -118,7 +116,7 @@ void render_con(Con *con, bool render_fullscreen) {
          * global fullscreen containers, we cannot abort rendering here yet,
          * because the floating windows (with popup_during_fullscreen smart)
          * have not yet been rendered (see the CT_ROOT code path below). See
-         * also http://bugs.i3wm.org/1393 */
+         * also https://bugs.i3wm.org/1393 */
         if (con->type != CT_ROOT) {
             return;
         }
@@ -167,7 +165,7 @@ void render_con(Con *con, bool render_fullscreen) {
                 /* By rendering the stacked container again, we handle the case
              * that we have a non-leaf-container inside the stack. In that
              * case, the children of the non-leaf-container need to be raised
-             * aswell. */
+             * as well. */
                 render_con(child, false);
             }
 
@@ -185,26 +183,28 @@ free_params:
 }
 
 static int *precalculate_sizes(Con *con, render_params *p) {
-    int *sizes = smalloc(p->children * sizeof(int));
-    if ((con->layout == L_SPLITH || con->layout == L_SPLITV) && p->children > 0) {
-        assert(!TAILQ_EMPTY(&con->nodes_head));
+    if ((con->layout != L_SPLITH && con->layout != L_SPLITV) || p->children <= 0) {
+        return NULL;
+    }
 
-        Con *child;
-        int i = 0, assigned = 0;
-        int total = con_orientation(con) == HORIZ ? p->rect.width : p->rect.height;
-        TAILQ_FOREACH(child, &(con->nodes_head), nodes) {
-            double percentage = child->percent > 0.0 ? child->percent : 1.0 / p->children;
-            assigned += sizes[i++] = percentage * total;
-        }
-        assert(assigned == total ||
-               (assigned > total && assigned - total <= p->children * 2) ||
-               (assigned < total && total - assigned <= p->children * 2));
-        int signal = assigned < total ? 1 : -1;
-        while (assigned != total) {
-            for (i = 0; i < p->children && assigned != total; ++i) {
-                sizes[i] += signal;
-                assigned += signal;
-            }
+    int *sizes = smalloc(p->children * sizeof(int));
+    assert(!TAILQ_EMPTY(&con->nodes_head));
+
+    Con *child;
+    int i = 0, assigned = 0;
+    int total = con_orientation(con) == HORIZ ? p->rect.width : p->rect.height;
+    TAILQ_FOREACH(child, &(con->nodes_head), nodes) {
+        double percentage = child->percent > 0.0 ? child->percent : 1.0 / p->children;
+        assigned += sizes[i++] = lround(percentage * total);
+    }
+    assert(assigned == total ||
+           (assigned > total && assigned - total <= p->children * 2) ||
+           (assigned < total && total - assigned <= p->children * 2));
+    int signal = assigned < total ? 1 : -1;
+    while (assigned != total) {
+        for (i = 0; i < p->children && assigned != total; ++i) {
+            sizes[i] += signal;
+            assigned += signal;
         }
     }
 
@@ -234,25 +234,22 @@ static void render_root(Con *con, Con *fullscreen) {
             continue;
         }
         Con *workspace = TAILQ_FIRST(&(content->focus_head));
-        Con *fullscreen = con_get_fullscreen_con(workspace, CF_OUTPUT);
+        Con *fullscreen = con_get_fullscreen_covering_ws(workspace);
         Con *child;
         TAILQ_FOREACH(child, &(workspace->floating_head), floating_windows) {
-            /* Don’t render floating windows when there is a fullscreen window
-             * on that workspace. Necessary to make floating fullscreen work
-             * correctly (ticket #564). */
-            /* If there is no fullscreen->window, this cannot be a
-             * transient window, so we _know_ we need to skip it. This
-             * happens during restarts where the container already exists,
-             * but the window was not yet associated. */
-            if (fullscreen != NULL && fullscreen->window == NULL)
-                continue;
-            if (fullscreen != NULL && fullscreen->window != NULL) {
+            if (fullscreen != NULL) {
+                /* Don’t render floating windows when there is a fullscreen
+                 * window on that workspace. Necessary to make floating
+                 * fullscreen work correctly (ticket #564). Exception to the
+                 * above rule: smart popup_during_fullscreen handling (popups
+                 * belonging to the fullscreen app will be rendered). */
+                if (config.popup_during_fullscreen != PDF_SMART) {
+                    continue;
+                }
+
                 Con *floating_child = con_descend_focused(child);
                 Con *transient_con = floating_child;
                 bool is_transient_for = false;
-                /* Exception to the above rule: smart
-                 * popup_during_fullscreen handling (popups belonging to
-                 * the fullscreen app will be rendered). */
                 while (transient_con != NULL &&
                        transient_con->window != NULL &&
                        transient_con->window->transient_for != XCB_NONE) {

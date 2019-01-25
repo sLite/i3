@@ -9,6 +9,8 @@
  */
 #pragma once
 
+#include "libi3.h"
+
 #define SN_API_NOT_YET_FROZEN 1
 #include <libsn/sn-launcher.h>
 
@@ -17,7 +19,6 @@
 #include <pcre.h>
 #include <sys/time.h>
 
-#include "libi3.h"
 #include "queue.h"
 
 /*
@@ -75,6 +76,12 @@ typedef enum { ADJ_NONE = 0,
                ADJ_UPPER_SCREEN_EDGE = (1 << 2),
                ADJ_LOWER_SCREEN_EDGE = (1 << 4) } adjacent_t;
 
+typedef enum { HEBM_NONE = ADJ_NONE,
+               HEBM_VERTICAL = ADJ_LEFT_SCREEN_EDGE | ADJ_RIGHT_SCREEN_EDGE,
+               HEBM_HORIZONTAL = ADJ_UPPER_SCREEN_EDGE | ADJ_LOWER_SCREEN_EDGE,
+               HEBM_BOTH = HEBM_VERTICAL | HEBM_HORIZONTAL,
+               HEBM_SMART = (1 << 5) } hide_edge_borders_mode_t;
+
 typedef enum { MM_REPLACE,
                MM_ADD } mark_mode_t;
 
@@ -125,6 +132,15 @@ typedef enum {
     POINTER_WARPING_OUTPUT = 0,
     POINTER_WARPING_NONE = 1
 } warping_t;
+
+/**
+ * Focus wrapping modes.
+ */
+typedef enum {
+    FOCUS_WRAPPING_OFF = 0,
+    FOCUS_WRAPPING_ON = 1,
+    FOCUS_WRAPPING_FORCE = 2
+} focus_wrapping_t;
 
 /**
  * Stores a rectangle, for example the size of a window, the child window etc.
@@ -192,7 +208,8 @@ struct Workspace_Assignment {
     char *name;
     char *output;
 
-    TAILQ_ENTRY(Workspace_Assignment) ws_assignments;
+    TAILQ_ENTRY(Workspace_Assignment)
+    ws_assignments;
 };
 
 struct Ignore_Event {
@@ -200,7 +217,8 @@ struct Ignore_Event {
     int response_type;
     time_t added;
 
-    SLIST_ENTRY(Ignore_Event) ignore_events;
+    SLIST_ENTRY(Ignore_Event)
+    ignore_events;
 };
 
 /**
@@ -219,7 +237,8 @@ struct Startup_Sequence {
      * completed) */
     time_t delete_at;
 
-    TAILQ_ENTRY(Startup_Sequence) sequences;
+    TAILQ_ENTRY(Startup_Sequence)
+    sequences;
 };
 
 /**
@@ -235,6 +254,19 @@ struct regex {
     char *pattern;
     pcre *regex;
     pcre_extra *extra;
+};
+
+/**
+ * Stores a resolved keycode (from a keysym), including the modifier mask. Will
+ * be passed to xcb_grab_key().
+ *
+ */
+struct Binding_Keycode {
+    xcb_keycode_t keycode;
+    i3_event_state_mask_t modifiers;
+
+    TAILQ_ENTRY(Binding_Keycode)
+    keycodes;
 };
 
 /******************************************************************************
@@ -275,7 +307,9 @@ struct Binding {
      * title bar (default). */
     bool whole_window;
 
-    uint32_t number_keycodes;
+    /** If this is true for a mouse binding, the binding should only be
+     * executed if the button press was not on the titlebar. */
+    bool exclude_titlebar;
 
     /** Keycode to bind */
     uint32_t keycode;
@@ -290,17 +324,17 @@ struct Binding {
      * if the keyboard mapping changes (using Xmodmap for example) */
     char *symbol;
 
-    /** Only in use if symbol != NULL. Gets set to the value to which the
-     * symbol got translated when binding. Useful for unbinding and
-     * checking which binding was used when a key press event comes in.
-     *
-     * This is an array of number_keycodes size. */
-    xcb_keycode_t *translated_to;
+    /** Only in use if symbol != NULL. Contains keycodes which generate the
+     * specified symbol. Useful for unbinding and checking which binding was
+     * used when a key press event comes in. */
+    TAILQ_HEAD(keycodes_head, Binding_Keycode)
+    keycodes_head;
 
     /** Command, like in command mode */
     char *command;
 
-    TAILQ_ENTRY(Binding) bindings;
+    TAILQ_ENTRY(Binding)
+    bindings;
 };
 
 /**
@@ -316,8 +350,19 @@ struct Autostart {
     /** no_startup_id flag for start_application(). Determines whether a
      * startup notification context/ID should be created. */
     bool no_startup_id;
-    TAILQ_ENTRY(Autostart) autostarts;
-    TAILQ_ENTRY(Autostart) autostarts_always;
+
+    TAILQ_ENTRY(Autostart)
+    autostarts;
+
+    TAILQ_ENTRY(Autostart)
+    autostarts_always;
+};
+
+struct output_name {
+    char *name;
+
+    SLIST_ENTRY(output_name)
+    names;
 };
 
 /**
@@ -341,8 +386,11 @@ struct xoutput {
     bool to_be_disabled;
     bool primary;
 
-    /** Name of the output */
-    char *name;
+    /** List of names for the output.
+     * An output always has at least one name; the first name is
+     * considered the primary one. */
+    SLIST_HEAD(names_head, output_name)
+    names_head;
 
     /** Pointer to the Con which represents this output */
     Con *con;
@@ -350,7 +398,8 @@ struct xoutput {
     /** x, y, width, height */
     Rect rect;
 
-    TAILQ_ENTRY(xoutput) outputs;
+    TAILQ_ENTRY(xoutput)
+    outputs;
 };
 
 /**
@@ -424,6 +473,14 @@ struct Window {
     int width_increment;
     int height_increment;
 
+    /* Minimum size specified for the window. */
+    int min_width;
+    int min_height;
+
+    /* Maximum size specified for the window. */
+    int max_width;
+    int max_height;
+
     /* aspect ratio from WM_NORMAL_HINTS (MPlayer uses this for example) */
     double aspect_ratio;
 };
@@ -461,9 +518,9 @@ struct Match {
         M_DOCK_BOTTOM = 3
     } dock;
     xcb_window_t id;
-    enum { M_ANY = 0,
-           M_TILING,
-           M_FLOATING } floating;
+    enum { WM_ANY = 0,
+           WM_TILING,
+           WM_FLOATING } window_mode;
     Con *con_id;
 
     /* Where the window looking for a match should be inserted:
@@ -479,7 +536,8 @@ struct Match {
            M_ASSIGN_WS,
            M_BELOW } insert_where;
 
-    TAILQ_ENTRY(Match) matches;
+    TAILQ_ENTRY(Match)
+    matches;
 
     /* Whether this match was generated when restarting i3 inplace.
      * Leads to not setting focus when managing a new window, because the old
@@ -511,19 +569,23 @@ struct Assignment {
         A_ANY = 0,
         A_COMMAND = (1 << 0),
         A_TO_WORKSPACE = (1 << 1),
-        A_NO_FOCUS = (1 << 2)
+        A_NO_FOCUS = (1 << 2),
+        A_TO_WORKSPACE_NUMBER = (1 << 3),
+        A_TO_OUTPUT = (1 << 4)
     } type;
 
     /** the criteria to check if a window matches */
     Match match;
 
-    /** destination workspace/command, depending on the type */
+    /** destination workspace/command/output, depending on the type */
     union {
         char *command;
         char *workspace;
+        char *output;
     } dest;
 
-    TAILQ_ENTRY(Assignment) assignments;
+    TAILQ_ENTRY(Assignment)
+    assignments;
 };
 
 /** Fullscreen modes. Used by Con.fullscreen_mode. */
@@ -534,7 +596,8 @@ typedef enum { CF_NONE = 0,
 struct mark_t {
     char *name;
 
-    TAILQ_ENTRY(mark_t) marks;
+    TAILQ_ENTRY(mark_t)
+    marks;
 };
 
 /**
@@ -598,7 +661,8 @@ struct Con {
     char *sticky_group;
 
     /* user-definable marks to jump to this container later */
-    TAILQ_HEAD(marks_head, mark_t) marks_head;
+    TAILQ_HEAD(marks_head, mark_t)
+    marks_head;
     /* cached to decide whether a redraw is needed */
     bool mark_changed;
 
@@ -617,12 +681,17 @@ struct Con {
     struct deco_render_params *deco_render_params;
 
     /* Only workspace-containers can have floating clients */
-    TAILQ_HEAD(floating_head, Con) floating_head;
+    TAILQ_HEAD(floating_head, Con)
+    floating_head;
 
-    TAILQ_HEAD(nodes_head, Con) nodes_head;
-    TAILQ_HEAD(focus_head, Con) focus_head;
+    TAILQ_HEAD(nodes_head, Con)
+    nodes_head;
 
-    TAILQ_HEAD(swallow_head, Match) swallow_head;
+    TAILQ_HEAD(focus_head, Con)
+    focus_head;
+
+    TAILQ_HEAD(swallow_head, Match)
+    swallow_head;
 
     fullscreen_mode_t fullscreen_mode;
 
@@ -660,10 +729,17 @@ struct Con {
         FLOATING_USER_ON = 3
     } floating;
 
-    TAILQ_ENTRY(Con) nodes;
-    TAILQ_ENTRY(Con) focused;
-    TAILQ_ENTRY(Con) all_cons;
-    TAILQ_ENTRY(Con) floating_windows;
+    TAILQ_ENTRY(Con)
+    nodes;
+
+    TAILQ_ENTRY(Con)
+    focused;
+
+    TAILQ_ENTRY(Con)
+    all_cons;
+
+    TAILQ_ENTRY(Con)
+    floating_windows;
 
     /** callbacks */
     void (*on_remove_child)(Con *);
@@ -686,4 +762,7 @@ struct Con {
 
     /* Depth of the container window */
     uint16_t depth;
+
+    /* The colormap for this con if a custom one is used. */
+    xcb_colormap_t colormap;
 };

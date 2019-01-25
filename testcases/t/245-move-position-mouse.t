@@ -2,13 +2,13 @@
 # vim:ts=4:sw=4:expandtab
 #
 # Please read the following documents before working on tests:
-# • http://build.i3wm.org/docs/testsuite.html
+# • https://build.i3wm.org/docs/testsuite.html
 #   (or docs/testsuite)
 #
-# • http://build.i3wm.org/docs/lib-i3test.html
+# • https://build.i3wm.org/docs/lib-i3test.html
 #   (alternatively: perldoc ./testcases/lib/i3test.pm)
 #
-# • http://build.i3wm.org/docs/ipc.html
+# • https://build.i3wm.org/docs/ipc.html
 #   (or docs/ipc)
 #
 # • http://onyxneon.com/books/modern_perl/modern_perl_a4.pdf
@@ -58,7 +58,7 @@ exit_gracefully($pid);
 
 ##########################################################################
 # Given a floating container and the cursor is in the left upper edge
-# of the output, when moving the container to the mouse, then the 
+# of the output, when moving the container to the mouse, then the
 # container is moved but adjusted to stay in-bounds.
 ##########################################################################
 
@@ -84,7 +84,7 @@ exit_gracefully($pid);
 
 ##########################################################################
 # Given a floating container and the cursor is in the left right lower
-# edge of the output, when moving the container to the mouse, then the 
+# edge of the output, when moving the container to the mouse, then the
 # container is moved but adjusted to stay in-bounds.
 ##########################################################################
 

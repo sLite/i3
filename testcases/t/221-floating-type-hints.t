@@ -2,13 +2,13 @@
 # vim:ts=4:sw=4:expandtab
 #
 # Please read the following documents before working on tests:
-# • http://build.i3wm.org/docs/testsuite.html
+# • https://build.i3wm.org/docs/testsuite.html
 #   (or docs/testsuite)
 #
-# • http://build.i3wm.org/docs/lib-i3test.html
+# • https://build.i3wm.org/docs/lib-i3test.html
 #   (alternatively: perldoc ./testcases/lib/i3test.pm)
 #
-# • http://build.i3wm.org/docs/ipc.html
+# • https://build.i3wm.org/docs/ipc.html
 #   (or docs/ipc)
 #
 # • http://onyxneon.com/books/modern_perl/modern_perl_a4.pdf
@@ -56,16 +56,16 @@ sub open_with_state {
 
 sub open_with_fixed_size {
     # The type of the WM_NORMAL_HINTS property is WM_SIZE_HINTS
-    # http://tronche.com/gui/x/icccm/sec-4.html#s-4.1.2.3
+    # https://tronche.com/gui/x/icccm/sec-4.html#s-4.1.2.3
     my $XCB_ICCCM_SIZE_HINT_P_MIN_SIZE = 0x32;
     my $XCB_ICCCM_SIZE_HINT_P_MAX_SIZE = 0x16;
 
     my $flags = $XCB_ICCCM_SIZE_HINT_P_MIN_SIZE | $XCB_ICCCM_SIZE_HINT_P_MAX_SIZE;
 
-    my $min_width = 55;
-    my $max_width = 55;
-    my $min_height = 77;
-    my $max_height = 77;
+    my $min_width = 150;
+    my $max_width = 150;
+    my $min_height = 100;
+    my $max_height = 100;
 
     my $pad = 0x00;
 
@@ -81,7 +81,7 @@ sub open_with_fixed_size {
                 $atomname->id,
                 $atomtype->id,
                 32,
-                12,
+                13,
                 pack('C5N8', $flags, $pad, $pad, $pad, $pad, 0, 0, 0, $min_width, $min_height, $max_width, $max_height),
             );
         },
@@ -114,6 +114,8 @@ $window->unmap;
 
 $window = open_with_fixed_size;
 is(get_ws($ws)->{floating_nodes}[0]->{nodes}[0]->{window}, $window->id, 'Fixed size window opened floating');
+is(get_ws($ws)->{floating_nodes}[0]->{nodes}[0]->{window_rect}->{width}, 150, 'Fixed size window opened with minimum width');
+is(get_ws($ws)->{floating_nodes}[0]->{nodes}[0]->{window_rect}->{height}, 100, 'Fixed size window opened with minimum height');
 $window->unmap;
 
 done_testing;

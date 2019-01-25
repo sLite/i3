@@ -2,13 +2,13 @@
 # vim:ts=4:sw=4:expandtab
 #
 # Please read the following documents before working on tests:
-# • http://build.i3wm.org/docs/testsuite.html
+# • https://build.i3wm.org/docs/testsuite.html
 #   (or docs/testsuite)
 #
-# • http://build.i3wm.org/docs/lib-i3test.html
+# • https://build.i3wm.org/docs/lib-i3test.html
 #   (alternatively: perldoc ./testcases/lib/i3test.pm)
 #
-# • http://build.i3wm.org/docs/ipc.html
+# • https://build.i3wm.org/docs/ipc.html
 #   (or docs/ipc)
 #
 # • http://onyxneon.com/books/modern_perl/modern_perl_a4.pdf
@@ -22,7 +22,7 @@ use List::Util qw(first);
 my ($config, $pid, $first, $second, $ws1, $ws2);
 
 sub send_net_active_window {
-    my ($id) = @_; 
+    my ($id) = @_;
 
     my $msg = pack "CCSLLLLLLL",
         X11::XCB::CLIENT_MESSAGE, # response_type
@@ -111,7 +111,7 @@ EOT
 
 $pid = launch_with_config($config);
 
-my $ws = fresh_workspace;
+$ws = fresh_workspace;
 $first = open_window;
 $second = open_window;
 
@@ -165,7 +165,7 @@ EOT
 
 $pid = launch_with_config($config);
 
-my $ws = fresh_workspace;
+$ws = fresh_workspace;
 $first = open_window;
 $second = open_window;
 

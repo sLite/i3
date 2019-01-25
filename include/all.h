@@ -10,8 +10,9 @@
  * compile-time.
  *
  */
-#ifndef I3_ALL_H
-#define I3_ALL_H
+#pragma once
+
+#include <config.h>
 
 #include <assert.h>
 #include <stdbool.h>
@@ -27,6 +28,7 @@
 #include <errno.h>
 #include <err.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <math.h>
 #include <limits.h>
 
@@ -37,11 +39,6 @@
 
 #include <yajl/yajl_gen.h>
 #include <yajl/yajl_version.h>
-
-/* Contains compatibility definitions for old libxcb versions */
-#ifdef XCB_COMPAT
-#include "xcb_compat.h"
-#endif
 
 #include "data.h"
 #include "util.h"
@@ -56,7 +53,7 @@
 #include "click.h"
 #include "key_press.h"
 #include "floating.h"
-#include "config.h"
+#include "configuration.h"
 #include "handlers.h"
 #include "randr.h"
 #include "xinerama.h"
@@ -85,6 +82,5 @@
 #include "fake_outputs.h"
 #include "display_version.h"
 #include "restore_layout.h"
+#include "sync.h"
 #include "main.h"
-
-#endif

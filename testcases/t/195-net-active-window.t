@@ -2,13 +2,13 @@
 # vim:ts=4:sw=4:expandtab
 #
 # Please read the following documents before working on tests:
-# • http://build.i3wm.org/docs/testsuite.html
+# • https://build.i3wm.org/docs/testsuite.html
 #   (or docs/testsuite)
 #
-# • http://build.i3wm.org/docs/lib-i3test.html
+# • https://build.i3wm.org/docs/lib-i3test.html
 #   (alternatively: perldoc ./testcases/lib/i3test.pm)
 #
-# • http://build.i3wm.org/docs/ipc.html
+# • https://build.i3wm.org/docs/ipc.html
 #   (or docs/ipc)
 #
 # • http://onyxneon.com/books/modern_perl/modern_perl_a4.pdf
@@ -24,7 +24,7 @@ use i3test;
 sub send_net_active_window {
     my ($id, $source) = @_;
 
-    $source = ($source eq 'pager' ? 2 : 0);
+    $source = (((defined $source) && ($source eq 'pager')) ? 2 : 0);
 
     my $msg = pack "CCSLLLLLLL",
         X11::XCB::CLIENT_MESSAGE, # response_type
@@ -39,6 +39,7 @@ sub send_net_active_window {
         0;
 
     $x->send_event(0, $x->get_root_window(), X11::XCB::EVENT_MASK_SUBSTRUCTURE_REDIRECT, $msg);
+    sync_with_i3;
 }
 
 sub get_net_active_window {
@@ -130,6 +131,23 @@ is($x->input_focus, $win3->id, 'focus reverted to window 3');
 send_net_active_window($scratch->id);
 
 is($x->input_focus, $win3->id, 'window 3 still focused');
+
+################################################################################
+# A scratchpad window should be shown if _NET_ACTIVE_WINDOW from a pager
+# is received.
+################################################################################
+
+$scratch = open_window;
+
+is($x->input_focus, $scratch->id, 'to-scratchpad window has focus');
+
+cmd 'move scratchpad';
+
+is($x->input_focus, $win3->id, 'focus reverted to window 3');
+
+send_net_active_window($scratch->id, 'pager');
+
+is($x->input_focus, $scratch->id, 'scratchpad window is shown');
 
 ################################################################################
 # Verify that the _NET_ACTIVE_WINDOW property is updated on the root window

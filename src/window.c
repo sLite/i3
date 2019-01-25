@@ -1,5 +1,3 @@
-#undef I3__FILE__
-#define I3__FILE__ "window.c"
 /*
  * vim:ts=4:sw=4:expandtab
  *
@@ -318,7 +316,7 @@ void window_update_motif_hints(i3Window *win, xcb_get_property_reply_t *prop, bo
      * documentation of this hint is nowhere to be found.
      * For more information see:
      * https://people.gnome.org/~tthurman/docs/metacity/xprops_8h-source.html
-     * http://stackoverflow.com/questions/13787553/detect-if-a-x11-window-has-decorations
+     * https://stackoverflow.com/questions/13787553/detect-if-a-x11-window-has-decorations
      */
 #define MWM_HINTS_FLAGS_FIELD 0
 #define MWM_HINTS_DECORATIONS_FIELD 2

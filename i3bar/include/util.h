@@ -7,6 +7,8 @@
  */
 #pragma once
 
+#include <config.h>
+
 #include "queue.h"
 
 /* Get the maximum/minimum of x and y */
@@ -18,12 +20,10 @@
 #define STARTS_WITH(string, len, needle) (((len) >= strlen((needle))) && strncasecmp((string), (needle), strlen((needle))) == 0)
 
 /* Securely free p */
-#define FREE(p)          \
-    do {                 \
-        if (p != NULL) { \
-            free(p);     \
-            p = NULL;    \
-        }                \
+#define FREE(p)   \
+    do {          \
+        free(p);  \
+        p = NULL; \
     } while (0)
 
 /* Securely free single-linked list */

@@ -5,15 +5,15 @@
  * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  */
+#include "libi3.h"
+
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 
 #include "queue.h"
-#include "libi3.h"
-
 struct Colorpixel {
-    char *hex;
+    char hex[8];
     uint32_t pixel;
 
     SLIST_ENTRY(Colorpixel)
@@ -43,7 +43,7 @@ uint32_t get_colorpixel(const char *hex) {
 
     /* Shortcut: if our screen is true color, no need to do a roundtrip to X11 */
     if (root_screen == NULL || root_screen->root_depth == 24 || root_screen->root_depth == 32) {
-        return (0xFF << 24) | (r << 16 | g << 8 | b);
+        return (0xFFUL << 24) | (r << 16 | g << 8 | b);
     }
 
     /* Lookup this colorpixel in the cache */
@@ -60,8 +60,7 @@ uint32_t get_colorpixel(const char *hex) {
 
     xcb_alloc_color_reply_t *reply;
 
-    reply = xcb_alloc_color_reply(conn, xcb_alloc_color(conn, root_screen->default_colormap,
-                                                        r16, g16, b16),
+    reply = xcb_alloc_color_reply(conn, xcb_alloc_color(conn, root_screen->default_colormap, r16, g16, b16),
                                   NULL);
 
     if (!reply) {
@@ -74,7 +73,10 @@ uint32_t get_colorpixel(const char *hex) {
 
     /* Store the result in the cache */
     struct Colorpixel *cache_pixel = scalloc(1, sizeof(struct Colorpixel));
-    cache_pixel->hex = sstrdup(hex);
+
+    strncpy(cache_pixel->hex, hex, 7);
+    cache_pixel->hex[7] = '\0';
+
     cache_pixel->pixel = pixel;
 
     SLIST_INSERT_HEAD(&(colorpixels), cache_pixel, colorpixels);

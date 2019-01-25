@@ -2,13 +2,13 @@
 # vim:ts=4:sw=4:expandtab
 #
 # Please read the following documents before working on tests:
-# • http://build.i3wm.org/docs/testsuite.html
+# • https://build.i3wm.org/docs/testsuite.html
 #   (or docs/testsuite)
 #
-# • http://build.i3wm.org/docs/lib-i3test.html
+# • https://build.i3wm.org/docs/lib-i3test.html
 #   (alternatively: perldoc ./testcases/lib/i3test.pm)
 #
-# • http://build.i3wm.org/docs/ipc.html
+# • https://build.i3wm.org/docs/ipc.html
 #   (or docs/ipc)
 #
 # • http://onyxneon.com/books/modern_perl/modern_perl_a4.pdf
@@ -104,6 +104,16 @@ is(@{get_ws($ws)->{nodes}}, 2, 'sanity check: workspace contains two windows');
 
 cmd '[workspace=__focused__] move to workspace trash';
 is(@{get_ws($ws)->{nodes}}, 0, '__focused__ works for workspace');
+
+###############################################################################
+# 6: Test that __focused__ in command criteria when no window is focused does
+# not crash i3.
+# See issue: #3406
+###############################################################################
+
+fresh_workspace;
+cmd '[class=__focused__] focus';
+does_i3_live;
 
 ###############################################################################
 

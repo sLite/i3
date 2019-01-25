@@ -2,13 +2,13 @@
 # vim:ts=4:sw=4:expandtab
 #
 # Please read the following documents before working on tests:
-# • http://build.i3wm.org/docs/testsuite.html
+# • https://build.i3wm.org/docs/testsuite.html
 #   (or docs/testsuite)
 #
-# • http://build.i3wm.org/docs/lib-i3test.html
+# • https://build.i3wm.org/docs/lib-i3test.html
 #   (alternatively: perldoc ./testcases/lib/i3test.pm)
 #
-# • http://build.i3wm.org/docs/ipc.html
+# • https://build.i3wm.org/docs/ipc.html
 #   (or docs/ipc)
 #
 # • http://onyxneon.com/books/modern_perl/modern_perl_a4.pdf
@@ -197,5 +197,21 @@ EOT
 
 is(launch_get_border($config), 'none', 'no border');
 
+
+#####################################################################
+# test ignoring of line continuation within a comment
+#####################################################################
+
+$config = <<'EOT';
+# i3 config file (v4)
+font -misc-fixed-medium-r-normal--13-120-75-75-C-70-iso10646-1
+
+set $vartest \"special title\"
+for_window [title="$vartest"] border pixel 1
+# this line is not continued, so the following is not contained in this comment\
+for_window [title="$vartest"] border none
+EOT
+
+is(launch_get_border($config), 'none', 'no border');
 
 done_testing;

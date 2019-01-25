@@ -1,5 +1,3 @@
-#undef I3__FILE__
-#define I3__FILE__ "config.c"
 /*
  * vim:ts=4:sw=4:expandtab
  *
@@ -11,14 +9,16 @@
  *
  */
 #include "all.h"
+
 #include <xkbcommon/xkbcommon.h>
 
 char *current_configpath = NULL;
+char *current_config = NULL;
 Config config;
 struct modes_head modes;
 struct barconfig_head barconfigs = TAILQ_HEAD_INITIALIZER(barconfigs);
 
-/**
+/*
  * Ungrabs all keys, to be called before re-grabbing the keys because of a
  * mapping_notify event or a configuration file reload
  *
@@ -32,7 +32,7 @@ void ungrab_all_keys(xcb_connection_t *conn) {
  * Sends the current bar configuration as an event to all barconfig_update listeners.
  *
  */
-void update_barconfig() {
+void update_barconfig(void) {
     Barconfig *current;
     TAILQ_FOREACH(current, &barconfigs, configs) {
         ipc_send_barconfig_update_event(current);
@@ -49,7 +49,8 @@ bool parse_configuration(const char *override_configpath, bool use_nagbar) {
     char *path = get_config_path(override_configpath, true);
     if (path == NULL) {
         die("Unable to find the configuration file (looked at "
-            "~/.i3/config, $XDG_CONFIG_HOME/i3/config, " SYSCONFDIR "/i3/config and $XDG_CONFIG_DIRS/i3/config)");
+            "$XDG_CONFIG_HOME/i3/config, ~/.i3/config, $XDG_CONFIG_DIRS/i3/config "
+            "and " SYSCONFDIR "/i3/config)");
     }
 
     LOG("Parsing configfile %s\n", path);
@@ -96,15 +97,24 @@ void load_configuration(xcb_connection_t *conn, const char *override_configpath,
             FREE(mode);
         }
 
-        struct Assignment *assign;
         while (!TAILQ_EMPTY(&assignments)) {
-            assign = TAILQ_FIRST(&assignments);
-            if (assign->type == A_TO_WORKSPACE)
+            struct Assignment *assign = TAILQ_FIRST(&assignments);
+            if (assign->type == A_TO_WORKSPACE || assign->type == A_TO_WORKSPACE_NUMBER)
                 FREE(assign->dest.workspace);
             else if (assign->type == A_COMMAND)
                 FREE(assign->dest.command);
+            else if (assign->type == A_TO_OUTPUT)
+                FREE(assign->dest.output);
             match_free(&(assign->match));
             TAILQ_REMOVE(&assignments, assign, assignments);
+            FREE(assign);
+        }
+
+        while (!TAILQ_EMPTY(&ws_assignments)) {
+            struct Workspace_Assignment *assign = TAILQ_FIRST(&ws_assignments);
+            FREE(assign->name);
+            FREE(assign->output);
+            TAILQ_REMOVE(&ws_assignments, assign, ws_assignments);
             FREE(assign);
         }
 
@@ -160,17 +170,16 @@ void load_configuration(xcb_connection_t *conn, const char *override_configpath,
             FREE(barconfig);
         }
 
-/* Clear workspace names */
-#if 0
-        Workspace *ws;
-        TAILQ_FOREACH(ws, workspaces, workspaces)
-            workspace_set_name(ws, NULL);
-#endif
-
-        /* Invalidate pixmap caches in case font or colors changed */
         Con *con;
-        TAILQ_FOREACH(con, &all_cons, all_cons)
-        FREE(con->deco_render_params);
+        TAILQ_FOREACH(con, &all_cons, all_cons) {
+            /* Assignments changed, previously ran assignments are invalid. */
+            if (con->window) {
+                con->window->nr_assignments = 0;
+                FREE(con->window->ran_assignments);
+            }
+            /* Invalidate pixmap caches in case font or colors changed. */
+            FREE(con->deco_render_params);
+        }
 
         /* Get rid of the current font */
         free_font();
@@ -189,10 +198,6 @@ void load_configuration(xcb_connection_t *conn, const char *override_configpath,
     SLIST_INSERT_HEAD(&modes, default_mode, modes);
 
     bindings = default_mode->bindings;
-
-#define REQUIRED_OPTION(name) \
-    if (config.name == NULL)  \
-        die("You did not specify required configuration option " #name "\n");
 
     /* Clear the old config or initialize the data structure */
     memset(&config, 0, sizeof(config));
@@ -234,6 +239,8 @@ void load_configuration(xcb_connection_t *conn, const char *override_configpath,
     if (config.workspace_urgency_timer == 0)
         config.workspace_urgency_timer = 0.5;
 
+    config.focus_wrapping = FOCUS_WRAPPING_ON;
+
     parse_configuration(override_configpath, true);
 
     if (reload) {
@@ -254,21 +261,4 @@ void load_configuration(xcb_connection_t *conn, const char *override_configpath,
         x_deco_recurse(croot);
         xcb_flush(conn);
     }
-
-#if 0
-    /* Set an empty name for every workspace which got no name */
-    Workspace *ws;
-    TAILQ_FOREACH(ws, workspaces, workspaces) {
-            if (ws->name != NULL) {
-                    /* If the font was not specified when the workspace name
-                     * was loaded, we need to predict the text width now */
-                    if (ws->text_width == 0)
-                            ws->text_width = predict_text_width(global_conn,
-                                            config.font, ws->name, ws->name_len);
-                    continue;
-            }
-
-            workspace_set_name(ws, NULL);
-    }
-#endif
 }

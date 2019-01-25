@@ -171,8 +171,8 @@ Exits i3.
 When starting, i3 looks for configuration files in the following order:
 
 1. ~/.config/i3/config (or $XDG_CONFIG_HOME/i3/config if set)
-2. /etc/xdg/i3/config (or $XDG_CONFIG_DIRS/i3/config if set)
-3. ~/.i3/config
+2. ~/.i3/config
+3. /etc/xdg/i3/config (or $XDG_CONFIG_DIRS/i3/config if set)
 4. /etc/i3/config
 
 You can specify a custom path using the -c option.
@@ -341,7 +341,7 @@ which is why this is not integrated into this manpage), the debugging guide,
 and the "how to hack" guide. If you are building from source, run:
  +make -C docs+
 
-You can also access these documents online at http://i3wm.org/
+You can also access these documents online at https://i3wm.org/
 
 i3-input(1), i3-msg(1), i3bar(1), i3-nagbar(1), i3-config-wizard(1),
 i3-migrate-config-to-v4(1)

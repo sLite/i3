@@ -7,6 +7,9 @@
  * child.c: Getting input for the statusline
  *
  */
+#include "common.h"
+#include "yajl_utils.h"
+
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/types.h>
@@ -25,7 +28,7 @@
 #include <yajl/yajl_gen.h>
 #include <paths.h>
 
-#include "common.h"
+#include <xcb/xcb_keysyms.h>
 
 /* Global variables for child_*() */
 i3bar_child child;
@@ -105,23 +108,26 @@ __attribute__((format(printf, 1, 2))) static void set_statusline_error(const cha
     char *message;
     va_list args;
     va_start(args, format);
-    (void)vasprintf(&message, format, args);
+    if (vasprintf(&message, format, args) == -1) {
+        goto finish;
+    }
 
     struct status_block *err_block = scalloc(1, sizeof(struct status_block));
     err_block->full_text = i3string_from_utf8("Error: ");
     err_block->name = sstrdup("error");
-    err_block->color = sstrdup("red");
+    err_block->color = sstrdup("#ff0000");
     err_block->no_separator = true;
 
     struct status_block *message_block = scalloc(1, sizeof(struct status_block));
     message_block->full_text = i3string_from_utf8(message);
     message_block->name = sstrdup("error_message");
-    message_block->color = sstrdup("red");
+    message_block->color = sstrdup("#ff0000");
     message_block->no_separator = true;
 
     TAILQ_INSERT_HEAD(&statusline_head, err_block, blocks);
     TAILQ_INSERT_TAIL(&statusline_head, message_block, blocks);
 
+finish:
     FREE(message);
     va_end(args);
 }
@@ -130,7 +136,7 @@ __attribute__((format(printf, 1, 2))) static void set_statusline_error(const cha
  * Stop and free() the stdin- and SIGCHLD-watchers
  *
  */
-void cleanup(void) {
+static void cleanup(void) {
     if (stdin_io != NULL) {
         ev_io_stop(main_loop, stdin_io);
         FREE(stdin_io);
@@ -331,10 +337,12 @@ static unsigned char *get_buffer(ev_io *watcher, int *ret_buffer_len) {
                 break;
             }
             ELOG("read() failed!: %s\n", strerror(errno));
+            FREE(buffer);
             exit(EXIT_FAILURE);
         }
         if (n == 0) {
             ELOG("stdin: received EOF\n");
+            FREE(buffer);
             *ret_buffer_len = -1;
             return NULL;
         }
@@ -359,11 +367,13 @@ static void read_flat_input(char *buffer, int length) {
     I3STRING_FREE(first->full_text);
     /* Remove the trailing newline and terminate the string at the same
      * time. */
-    if (buffer[length - 1] == '\n' || buffer[length - 1] == '\r')
+    if (buffer[length - 1] == '\n' || buffer[length - 1] == '\r') {
         buffer[length - 1] = '\0';
-    else
+    } else {
         buffer[length] = '\0';
-    first->full_text = i3string_from_markup(buffer);
+    }
+
+    first->full_text = i3string_from_utf8(buffer);
 }
 
 static bool read_json_input(unsigned char *input, int length) {
@@ -393,7 +403,7 @@ static bool read_json_input(unsigned char *input, int length) {
  * in statusline
  *
  */
-void stdin_io_cb(struct ev_loop *loop, ev_io *watcher, int revents) {
+static void stdin_io_cb(struct ev_loop *loop, ev_io *watcher, int revents) {
     int rec;
     unsigned char *buffer = get_buffer(watcher, &rec);
     if (buffer == NULL)
@@ -413,7 +423,7 @@ void stdin_io_cb(struct ev_loop *loop, ev_io *watcher, int revents) {
  * whether this is JSON or plain text
  *
  */
-void stdin_io_first_line_cb(struct ev_loop *loop, ev_io *watcher, int revents) {
+static void stdin_io_first_line_cb(struct ev_loop *loop, ev_io *watcher, int revents) {
     int rec;
     unsigned char *buffer = get_buffer(watcher, &rec);
     if (buffer == NULL)
@@ -450,7 +460,7 @@ void stdin_io_first_line_cb(struct ev_loop *loop, ev_io *watcher, int revents) {
  * anymore
  *
  */
-void child_sig_cb(struct ev_loop *loop, ev_child *watcher, int revents) {
+static void child_sig_cb(struct ev_loop *loop, ev_child *watcher, int revents) {
     int exit_status = WEXITSTATUS(watcher->rstatus);
 
     ELOG("Child (pid: %d) unexpectedly exited with status %d\n",
@@ -470,7 +480,7 @@ void child_sig_cb(struct ev_loop *loop, ev_child *watcher, int revents) {
     draw_bars(false);
 }
 
-void child_write_output(void) {
+static void child_write_output(void) {
     if (child.click_events) {
         const unsigned char *output;
         size_t size;
@@ -573,7 +583,7 @@ void start_child(char *command) {
     atexit(kill_child_at_exit);
 }
 
-void child_click_events_initialize(void) {
+static void child_click_events_initialize(void) {
     if (!child.click_events_init) {
         yajl_gen_array_open(gen);
         child_write_output();
@@ -581,15 +591,11 @@ void child_click_events_initialize(void) {
     }
 }
 
-void child_click_events_key(const char *key) {
-    yajl_gen_string(gen, (const unsigned char *)key, strlen(key));
-}
-
 /*
  * Generates a click event, if enabled.
  *
  */
-void send_block_clicked(int button, const char *name, const char *instance, int x, int y) {
+void send_block_clicked(int button, const char *name, const char *instance, int x, int y, int x_rel, int y_rel, int width, int height, int mods) {
     if (!child.click_events) {
         return;
     }
@@ -599,23 +605,53 @@ void send_block_clicked(int button, const char *name, const char *instance, int 
     yajl_gen_map_open(gen);
 
     if (name) {
-        child_click_events_key("name");
-        yajl_gen_string(gen, (const unsigned char *)name, strlen(name));
+        ystr("name");
+        ystr(name);
     }
 
     if (instance) {
-        child_click_events_key("instance");
-        yajl_gen_string(gen, (const unsigned char *)instance, strlen(instance));
+        ystr("instance");
+        ystr(instance);
     }
 
-    child_click_events_key("button");
+    ystr("button");
     yajl_gen_integer(gen, button);
 
-    child_click_events_key("x");
+    ystr("modifiers");
+    yajl_gen_array_open(gen);
+    if (mods & XCB_MOD_MASK_SHIFT)
+        ystr("Shift");
+    if (mods & XCB_MOD_MASK_CONTROL)
+        ystr("Control");
+    if (mods & XCB_MOD_MASK_1)
+        ystr("Mod1");
+    if (mods & XCB_MOD_MASK_2)
+        ystr("Mod2");
+    if (mods & XCB_MOD_MASK_3)
+        ystr("Mod3");
+    if (mods & XCB_MOD_MASK_4)
+        ystr("Mod4");
+    if (mods & XCB_MOD_MASK_5)
+        ystr("Mod5");
+    yajl_gen_array_close(gen);
+
+    ystr("x");
     yajl_gen_integer(gen, x);
 
-    child_click_events_key("y");
+    ystr("y");
     yajl_gen_integer(gen, y);
+
+    ystr("relative_x");
+    yajl_gen_integer(gen, x_rel);
+
+    ystr("relative_y");
+    yajl_gen_integer(gen, y_rel);
+
+    ystr("width");
+    yajl_gen_integer(gen, width);
+
+    ystr("height");
+    yajl_gen_integer(gen, height);
 
     yajl_gen_map_close(gen);
     child_write_output();

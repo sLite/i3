@@ -8,6 +8,8 @@
  *                   keysyms.
  *
  */
+#include <config.h>
+
 #if defined(__FreeBSD__)
 #include <sys/param.h>
 #endif
@@ -46,6 +48,9 @@
 #include <xkbcommon/xkbcommon.h>
 #include <xkbcommon/xkbcommon-x11.h>
 
+#define SN_API_NOT_YET_FROZEN 1
+#include <libsn/sn-launchee.h>
+
 #include <X11/Xlib.h>
 #include <X11/keysym.h>
 #include <X11/XKBlib.h>
@@ -56,21 +61,25 @@
 #error "SYSCONFDIR not defined"
 #endif
 
-#define FREE(pointer)          \
-    do {                       \
-        if (pointer != NULL) { \
-            free(pointer);     \
-            pointer = NULL;    \
-        }                      \
+#define FREE(pointer)   \
+    do {                \
+        free(pointer);  \
+        pointer = NULL; \
     } while (0)
 
 #include "xcb.h"
 #include "libi3.h"
 
+#define TEXT_PADDING logical_px(4)
+#define WIN_POS_X logical_px(490)
+#define WIN_POS_Y logical_px(297)
+#define WIN_WIDTH logical_px(300)
+#define WIN_HEIGHT (15 * font.height + TEXT_PADDING)
+
+#define col_x(col) \
+    (((col)-1) * char_width + TEXT_PADDING)
 #define row_y(row) \
-    (((row)-1) * font.height + logical_px(4))
-#define window_height() \
-    (row_y(15) + font.height)
+    (((row)-1) * font.height + TEXT_PADDING)
 
 enum { STEP_WELCOME,
        STEP_GENERATE } current_step = STEP_WELCOME;
@@ -86,17 +95,16 @@ static xcb_get_modifier_mapping_reply_t *modmap_reply;
 static i3Font font;
 static i3Font bold_font;
 static int char_width;
-static char *socket_path;
+static char *socket_path = NULL;
 static xcb_window_t win;
-static xcb_pixmap_t pixmap;
-static xcb_gcontext_t pixmap_gc;
+static surface_t surface;
 static xcb_key_symbols_t *symbols;
 xcb_window_t root;
 static struct xkb_keymap *xkb_keymap;
 static uint8_t xkb_base_event;
 static uint8_t xkb_base_error;
 
-static void finish();
+static void finish(void);
 
 #include "GENERATED_config_enums.h"
 
@@ -208,7 +216,7 @@ static const char *get_string(const char *identifier) {
 
 static void clear_stack(void) {
     for (int c = 0; c < 10; c++) {
-        if (stack[c].type == STACK_STR && stack[c].val.str != NULL)
+        if (stack[c].type == STACK_STR)
             free(stack[c].val.str);
         stack[c].identifier = NULL;
         stack[c].val.str = NULL;
@@ -288,6 +296,7 @@ static char *next_state(const cmdp_token *token) {
         }
         sasprintf(&res, "bindsym %s%s%s %s%s\n", (modifiers == NULL ? "" : modrep), (modifiers == NULL ? "" : "+"), str, (release == NULL ? "" : release), get_string("command"));
         clear_stack();
+        free(modrep);
         return res;
     }
 
@@ -461,82 +470,73 @@ void errorlog(char *fmt, ...) {
 void debuglog(char *fmt, ...) {
 }
 
+static void txt(int col, int row, char *text, color_t fg, color_t bg) {
+    int x = col_x(col);
+    int y = row_y(row);
+    i3String *string = i3string_from_utf8(text);
+    draw_util_text(string, &surface, fg, bg, x, y, WIN_WIDTH - x - TEXT_PADDING);
+    i3string_free(string);
+}
+
 /*
  * Handles expose events, that is, draws the window contents.
  *
  */
-static int handle_expose() {
-    /* re-draw the background */
-    xcb_rectangle_t border = {0, 0, logical_px(300), window_height()};
-    xcb_change_gc(conn, pixmap_gc, XCB_GC_FOREGROUND, (uint32_t[]){get_colorpixel("#000000")});
-    xcb_poly_fill_rectangle(conn, pixmap, pixmap_gc, 1, &border);
+static int handle_expose(void) {
+    const color_t black = draw_util_hex_to_color("#000000");
+    const color_t white = draw_util_hex_to_color("#FFFFFF");
+    const color_t green = draw_util_hex_to_color("#00FF00");
+    const color_t red = draw_util_hex_to_color("#FF0000");
+
+    /* draw background */
+    draw_util_clear_surface(&surface, black);
 
     set_font(&font);
 
-#define txt(x, row, text)                    \
-    draw_text_ascii(text, pixmap, pixmap_gc, \
-                    x, row_y(row), logical_px(500) - x * 2)
-
     if (current_step == STEP_WELCOME) {
-        /* restore font color */
-        set_font_colors(pixmap_gc, draw_util_hex_to_color("#FFFFFF"), draw_util_hex_to_color("#000000"));
-
-        txt(logical_px(10), 2, "You have not configured i3 yet.");
-        txt(logical_px(10), 3, "Do you want me to generate a config at");
+        txt(2, 2, "You have not configured i3 yet.", white, black);
+        txt(2, 3, "Do you want me to generate a config at", white, black);
 
         char *msg;
         sasprintf(&msg, "%s?", config_path);
-        txt(logical_px(10), 4, msg);
+        txt(2, 4, msg, white, black);
         free(msg);
 
-        txt(logical_px(85), 6, "Yes, generate the config");
-        txt(logical_px(85), 8, "No, I will use the defaults");
+        txt(13, 6, "Yes, generate the config", white, black);
+        txt(13, 8, "No, I will use the defaults", white, black);
 
-        /* green */
-        set_font_colors(pixmap_gc, draw_util_hex_to_color("#00FF00"), draw_util_hex_to_color("#000000"));
-        txt(logical_px(25), 6, "<Enter>");
+        txt(4, 6, "<Enter>", green, black);
 
-        /* red */
-        set_font_colors(pixmap_gc, draw_util_hex_to_color("#FF0000"), draw_util_hex_to_color("#000000"));
-        txt(logical_px(31), 8, "<ESC>");
+        txt(5, 8, "<ESC>", red, black);
     }
 
     if (current_step == STEP_GENERATE) {
-        set_font_colors(pixmap_gc, draw_util_hex_to_color("#FFFFFF"), draw_util_hex_to_color("#000000"));
-
-        txt(logical_px(10), 2, "Please choose either:");
-        txt(logical_px(85), 4, "Win as default modifier");
-        txt(logical_px(85), 5, "Alt as default modifier");
-        txt(logical_px(10), 7, "Afterwards, press");
-        txt(logical_px(85), 9, "to write the config");
-        txt(logical_px(85), 10, "to abort");
+        txt(2, 2, "Please choose either:", white, black);
+        txt(13, 4, "Win as default modifier", white, black);
+        txt(13, 5, "Alt as default modifier", white, black);
+        txt(2, 7, "Afterwards, press", white, black);
+        txt(13, 9, "to write the config", white, black);
+        txt(13, 10, "to abort", white, black);
 
         /* the not-selected modifier */
         if (modifier == MOD_Mod4)
-            txt(logical_px(31), 5, "<Alt>");
+            txt(5, 5, "<Alt>", white, black);
         else
-            txt(logical_px(31), 4, "<Win>");
+            txt(5, 4, "<Win>", white, black);
 
         /* the selected modifier */
         set_font(&bold_font);
-        set_font_colors(pixmap_gc, draw_util_hex_to_color("#FFFFFF"), draw_util_hex_to_color("#000000"));
         if (modifier == MOD_Mod4)
-            txt(logical_px(10), 4, "-> <Win>");
+            txt(2, 4, "-> <Win>", white, black);
         else
-            txt(logical_px(10), 5, "-> <Alt>");
+            txt(2, 5, "-> <Alt>", white, black);
 
-        /* green */
         set_font(&font);
-        set_font_colors(pixmap_gc, draw_util_hex_to_color("#00FF00"), draw_util_hex_to_color("#000000"));
-        txt(logical_px(25), 9, "<Enter>");
+        txt(4, 9, "<Enter>", green, black);
 
-        /* red */
-        set_font_colors(pixmap_gc, draw_util_hex_to_color("#FF0000"), draw_util_hex_to_color("#000000"));
-        txt(logical_px(31), 10, "<ESC>");
+        txt(5, 10, "<ESC>", red, black);
     }
 
-    /* Copy the contents of the pixmap to the real window */
-    xcb_copy_area(conn, pixmap, win, pixmap_gc, 0, 0, 0, 0, logical_px(500), logical_px(500));
     xcb_flush(conn);
 
     return 1;
@@ -623,8 +623,7 @@ static void handle_button_press(xcb_button_press_event_t *event) {
     if (current_step != STEP_GENERATE)
         return;
 
-    if (event->event_x < logical_px(32) ||
-        event->event_x > (logical_px(32) + char_width * 5))
+    if (event->event_x < col_x(5) || event->event_x > col_x(10))
         return;
 
     if (event->event_y >= row_y(4) && event->event_y <= (row_y(4) + font.height)) {
@@ -636,15 +635,13 @@ static void handle_button_press(xcb_button_press_event_t *event) {
         modifier = MOD_Mod1;
         handle_expose();
     }
-
-    return;
 }
 
 /*
  * Creates the config file and tells i3 to reload.
  *
  */
-static void finish() {
+static void finish(void) {
     printf("creating \"%s\"...\n", config_path);
 
     struct xkb_context *xkb_context;
@@ -747,14 +744,15 @@ static void finish() {
 
 int main(int argc, char *argv[]) {
     char *xdg_config_home;
-    socket_path = getenv("I3SOCK");
     char *pattern = "pango:monospace 8";
     char *patternbold = "pango:monospace bold 8";
     int o, option_index = 0;
+    bool headless_run = false;
 
     static struct option long_options[] = {
         {"socket", required_argument, 0, 's'},
         {"version", no_argument, 0, 'v'},
+        {"modifier", required_argument, 0, 'm'},
         {"limit", required_argument, 0, 'l'},
         {"prompt", required_argument, 0, 'P'},
         {"prefix", required_argument, 0, 'p'},
@@ -762,7 +760,7 @@ int main(int argc, char *argv[]) {
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}};
 
-    char *options_string = "s:vh";
+    char *options_string = "sm:vh";
 
     while ((o = getopt_long(argc, argv, options_string, long_options, &option_index)) != -1) {
         switch (o) {
@@ -773,9 +771,18 @@ int main(int argc, char *argv[]) {
             case 'v':
                 printf("i3-config-wizard " I3_VERSION "\n");
                 return 0;
+            case 'm':
+                headless_run = true;
+                if (strcmp(optarg, "alt") == 0)
+                    modifier = MOD_Mod1;
+                else if (strcmp(optarg, "win") == 0)
+                    modifier = MOD_Mod4;
+                else
+                    err(EXIT_FAILURE, "Invalid modifier key %s", optarg);
+                break;
             case 'h':
                 printf("i3-config-wizard " I3_VERSION "\n");
-                printf("i3-config-wizard [-s <socket>] [-v]\n");
+                printf("i3-config-wizard [-s <socket>] [-m win|alt] [-v] [-h]\n");
                 return 0;
         }
     }
@@ -827,22 +834,26 @@ int main(int argc, char *argv[]) {
                                     &xkb_base_error) != 1)
         errx(EXIT_FAILURE, "Could not setup XKB extension.");
 
-    if (socket_path == NULL)
-        socket_path = root_atom_contents("I3_SOCKET_PATH", conn, screen);
-
-    if (socket_path == NULL)
-        socket_path = "/tmp/i3-ipc.sock";
-
     keysyms = xcb_key_symbols_alloc(conn);
     xcb_get_modifier_mapping_cookie_t modmap_cookie;
     modmap_cookie = xcb_get_modifier_mapping(conn);
     symbols = xcb_key_symbols_alloc(conn);
+
+    if (headless_run) {
+        finish();
+        return 0;
+    }
 
 /* Place requests for the atoms we need as soon as possible */
 #define xmacro(atom) \
     xcb_intern_atom_cookie_t atom##_cookie = xcb_intern_atom(conn, 0, strlen(#atom), #atom);
 #include "atoms.xmacro"
 #undef xmacro
+
+    /* Init startup notification. */
+    SnDisplay *sndisplay = sn_xcb_display_new(conn, NULL, NULL);
+    SnLauncheeContext *sncontext = sn_launchee_context_new_from_environment(sndisplay, screen);
+    sn_display_unref(sndisplay);
 
     root_screen = xcb_aux_get_screen(conn, screen);
     root = root_screen->root;
@@ -852,6 +863,7 @@ int main(int argc, char *argv[]) {
 
     xcb_numlock_mask = get_mod_mask_for(XCB_NUM_LOCK, symbols, modmap_reply);
 
+    init_dpi();
     font = load_font(pattern, true);
     bold_font = load_font(patternbold, true);
 
@@ -864,10 +876,10 @@ int main(int argc, char *argv[]) {
     xcb_create_window(
         conn,
         XCB_COPY_FROM_PARENT,
-        win,                                                                /* the window id */
-        root,                                                               /* parent == root */
-        logical_px(490), logical_px(297), logical_px(300), window_height(), /* dimensions */
-        0,                                                                  /* X11 border = 0, we draw our own */
+        win,                                         /* the window id */
+        root,                                        /* parent == root */
+        WIN_POS_X, WIN_POS_Y, WIN_WIDTH, WIN_HEIGHT, /* dimensions */
+        0,                                           /* X11 border = 0, we draw our own */
         XCB_WINDOW_CLASS_INPUT_OUTPUT,
         XCB_WINDOW_CLASS_COPY_FROM_PARENT, /* copy visual from parent */
         XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK,
@@ -875,6 +887,9 @@ int main(int argc, char *argv[]) {
             0, /* back pixel: black */
             XCB_EVENT_MASK_EXPOSURE |
                 XCB_EVENT_MASK_BUTTON_PRESS});
+    if (sncontext) {
+        sn_launchee_context_setup_window(sncontext, win);
+    }
 
     /* Map the window (make it visible) */
     xcb_map_window(conn, win);
@@ -912,11 +927,8 @@ int main(int argc, char *argv[]) {
                         strlen("i3: first configuration"),
                         "i3: first configuration");
 
-    /* Create pixmap */
-    pixmap = xcb_generate_id(conn);
-    pixmap_gc = xcb_generate_id(conn);
-    xcb_create_pixmap(conn, root_screen->root_depth, pixmap, win, logical_px(500), logical_px(500));
-    xcb_create_gc(conn, pixmap_gc, pixmap, 0, 0);
+    /* Initialize drawable surface */
+    draw_util_surface_init(conn, &surface, win, get_visualtype(root_screen), WIN_WIDTH, WIN_HEIGHT);
 
     /* Grab the keyboard to get all input */
     xcb_flush(conn);
@@ -939,6 +951,12 @@ int main(int argc, char *argv[]) {
         exit(-1);
     }
 
+    /* Startup complete. */
+    if (sncontext) {
+        sn_launchee_context_complete(sncontext);
+        sn_launchee_context_unref(sncontext);
+    }
+
     xcb_flush(conn);
 
     xcb_generic_event_t *event;
@@ -951,24 +969,29 @@ int main(int argc, char *argv[]) {
         /* Strip off the highest bit (set if the event is generated) */
         int type = (event->response_type & 0x7F);
 
+        /* TODO: handle mappingnotify */
         switch (type) {
             case XCB_KEY_PRESS:
                 handle_key_press(NULL, conn, (xcb_key_press_event_t *)event);
                 break;
-
-            /* TODO: handle mappingnotify */
 
             case XCB_BUTTON_PRESS:
                 handle_button_press((xcb_button_press_event_t *)event);
                 break;
 
             case XCB_EXPOSE:
-                handle_expose();
+                if (((xcb_expose_event_t *)event)->count == 0) {
+                    handle_expose();
+                }
+
                 break;
         }
 
         free(event);
     }
+
+    /* Dismiss drawable surface */
+    draw_util_surface_free(conn, &surface);
 
     return 0;
 }

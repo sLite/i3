@@ -11,6 +11,8 @@
  */
 #pragma once
 
+#include <config.h>
+
 /**
  * Create a new container (and attach it to the given parent, if not NULL).
  * This function only initializes the data structures.
@@ -18,10 +20,17 @@
  */
 Con *con_new_skeleton(Con *parent, i3Window *window);
 
-/* A wrapper for con_new_skeleton, to retain the old con_new behaviour
+/**
+ * A wrapper for con_new_skeleton, to retain the old con_new behaviour
  *
  */
 Con *con_new(Con *parent, i3Window *window);
+
+/**
+ * Frees the specified container.
+ *
+ */
+void con_free(Con *con);
 
 /**
  * Sets input focus to the given container. Will be updated in X11 in the next
@@ -29,6 +38,12 @@ Con *con_new(Con *parent, i3Window *window);
  *
  */
 void con_focus(Con *con);
+
+/**
+ * Sets input focus to the given container and raises it to the top.
+ *
+ */
+void con_activate(Con *con);
 
 /**
  * Closes the given container.
@@ -94,7 +109,7 @@ Con *con_get_output(Con *con);
 Con *con_get_workspace(Con *con);
 
 /**
- * Searches parenst of the given 'con' until it reaches one with the specified
+ * Searches parents of the given 'con' until it reaches one with the specified
  * 'orientation'. Aborts when it comes across a floating_con.
  *
  */
@@ -105,6 +120,14 @@ Con *con_parent_with_orientation(Con *con, orientation_t orientation);
  *
  */
 Con *con_get_fullscreen_con(Con *con, fullscreen_mode_t fullscreen_mode);
+
+/**
+ * Returns the fullscreen node that covers the given workspace if it exists.
+ * This is either a CF_GLOBAL fullscreen container anywhere or a CF_OUTPUT
+ * fullscreen container in the workspace.
+ *
+ */
+Con *con_get_fullscreen_covering_ws(Con *ws);
 
 /**
  * Returns true if the container is internal, such as __i3_scratch
@@ -138,11 +161,31 @@ Con *con_inside_floating(Con *con);
 bool con_inside_focused(Con *con);
 
 /**
+ * Checks if the container has the given parent as an actual parent.
+ *
+ */
+bool con_has_parent(Con *con, Con *parent);
+
+/**
  * Returns the container with the given client window ID or NULL if no such
  * container exists.
  *
  */
 Con *con_by_window_id(xcb_window_t window);
+
+/**
+ * Returns the container with the given container ID or NULL if no such
+ * container exists.
+ *
+ */
+Con *con_by_con_id(long target);
+
+/**
+ * Returns true if the given container (still) exists.
+ * This can be used, e.g., to make sure a container hasn't been closed in the meantime.
+ *
+ */
+bool con_exists(Con *con);
 
 /**
  * Returns the container with the given frame ID or NULL if no such container
@@ -178,7 +221,7 @@ void con_mark_toggle(Con *con, const char *mark, mark_mode_t mode);
  */
 void con_mark(Con *con, const char *mark, mark_mode_t mode);
 
-/*
+/**
  * Removes marks from containers.
  * If con is NULL, all containers are considered.
  * If name is NULL, this removes all existing marks.
@@ -195,10 +238,39 @@ void con_unmark(Con *con, const char *name);
 Con *con_for_window(Con *con, i3Window *window, Match **store_match);
 
 /**
+ * Iterate over the container's focus stack and return an array with the
+ * containers inside it, ordered from higher focus order to lowest.
+ *
+ */
+Con **get_focus_order(Con *con);
+
+/**
+ * Clear the container's focus stack and re-add it using the provided container
+ * array. The function doesn't check if the provided array contains the same
+ * containers with the previous focus stack but will not add floating containers
+ * in the new focus stack if container is not a workspace.
+ *
+ */
+void set_focus_order(Con *con, Con **focus_order);
+
+/**
  * Returns the number of children of this container.
  *
  */
 int con_num_children(Con *con);
+
+/**
+ * Returns the number of visible non-floating children of this container.
+ * For example, if the container contains a hsplit which has two children,
+ * this will return 2 instead of 1.
+ */
+int con_num_visible_children(Con *con);
+
+/**
+ * Count the number of windows (i.e., leaf containers).
+ *
+ */
+int con_num_windows(Con *con);
 
 /**
  * Attaches the given container to the given parent. This happens when moving
@@ -269,6 +341,22 @@ void con_move_to_workspace(Con *con, Con *workspace, bool fix_coordinates,
                            bool dont_warp, bool ignore_focus);
 
 /**
+ * Moves the given container to the currently focused container on the
+ * visible workspace on the given output.
+ *
+ */
+void con_move_to_output(Con *con, Output *output, bool fix_coordinates);
+
+/**
+ * Moves the given container to the currently focused container on the
+ * visible workspace on the output specified by the given name.
+ * The current output for the container is used to resolve relative names
+ * such as left, right, up, down.
+ *
+ */
+bool con_move_to_output_name(Con *con, const char *name, bool fix_coordinates);
+
+/**
  * Moves the given container to the given mark.
  *
  */
@@ -315,7 +403,7 @@ Con *con_descend_focused(Con *con);
  */
 Con *con_descend_tiling_focused(Con *con);
 
-/*
+/**
  * Returns the leftmost, rightmost, etc. container in sub-tree. For example, if
  * direction is D_LEFT, then we return the rightmost container and if direction
  * is D_RIGHT, we return the leftmost container.  This is because if we are
@@ -439,3 +527,9 @@ void con_force_split_parents_redraw(Con *con);
  *
  */
 i3String *con_parse_title_format(Con *con);
+
+/**
+ * Swaps the two containers.
+ *
+ */
+bool con_swap(Con *first, Con *second);

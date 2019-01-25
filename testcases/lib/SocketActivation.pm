@@ -49,6 +49,11 @@ sub activate_i3 {
         die "could not fork()";
     }
     if ($pid == 0) {
+        # Start a process group so that in the parent, we can kill the entire
+        # process group and immediately kill i3bar and any other child
+        # processes.
+        setpgrp;
+
         $ENV{LISTEN_PID} = $$;
         $ENV{LISTEN_FDS} = 1;
         delete $ENV{DESKTOP_STARTUP_ID};
@@ -62,14 +67,6 @@ sub activate_i3 {
             mkdir $ENV{XDG_RUNTIME_DIR};
         }
         $ENV{DISPLAY} = $args{display};
-        $ENV{PATH} = join(':',
-            '../i3-nagbar',
-            '../i3-msg',
-            '../i3-config-wizard',
-            '../i3bar',
-            '..',
-            $ENV{PATH}
-        );
 
         # We are about to exec, but we did not modify $^F to include $socket
         # when creating the socket (because the file descriptor could have a
@@ -96,7 +93,10 @@ sub activate_i3 {
         # the interactive signalhandler to make it crash immediately instead.
         # Also disable logging to SHM since we redirect the logs anyways.
         # Force Xinerama because we use Xdmx for multi-monitor tests.
-        my $i3cmd = abs_path("../i3") . q| --shmlog-size=0 --disable-signalhandler --force-xinerama|;
+        my $i3cmd = q|i3 --shmlog-size=0 --disable-signalhandler|;
+        if (!defined($args{inject_randr15})) {
+            $i3cmd .= q| --force-xinerama|;
+        }
         if (!$args{validate_config}) {
             # We only set logging if i3 is actually started, but not if we only
             # validate the config file. This is to keep logging to a minimum as
@@ -145,6 +145,18 @@ sub activate_i3 {
             # See comment in $args{strace} branch.
             $cmd = qq|xtrace -n -o "$out" -- | .
                      'sh -c "export LISTEN_PID=\$\$; ' . $cmd . '"';
+        }
+
+        if ($args{inject_randr15}) {
+            # See comment in $args{strace} branch.
+            $cmd = 'test.inject_randr15 --getmonitors_reply="' .
+                   $args{inject_randr15} . '" ' .
+                   ($args{inject_randr15_outputinfo}
+                    ? '--getoutputinfo_reply="' .
+                      $args{inject_randr15_outputinfo} . '" '
+                    : '') .
+                   '-- ' .
+                   'sh -c "export LISTEN_PID=\$\$; ' . $cmd . '"';
         }
 
         # We need to use the shell due to using output redirections.

@@ -17,7 +17,9 @@ state INITIAL:
   end ->
   error ->
   '#'                                      -> IGNORE_LINE
-  'set'                                    -> IGNORE_LINE
+  'set '                                   -> IGNORE_LINE
+  'set	'                                  -> IGNORE_LINE
+  'set_from_resource'                      -> IGNORE_LINE
   bindtype = 'bindsym', 'bindcode', 'bind' -> BINDING
   'bar'                                    -> BARBRACE
   'font'                                   -> FONT
@@ -27,22 +29,27 @@ state INITIAL:
   'floating_modifier'                      -> FLOATING_MODIFIER
   'default_orientation'                    -> DEFAULT_ORIENTATION
   'workspace_layout'                       -> WORKSPACE_LAYOUT
-  windowtype = 'new_window', 'new_float'   -> NEW_WINDOW
+  windowtype = 'default_border', 'new_window', 'default_floating_border', 'new_float'
+      -> DEFAULT_BORDER
   'hide_edge_borders'                      -> HIDE_EDGE_BORDERS
   'for_window'                             -> FOR_WINDOW
   'assign'                                 -> ASSIGN
   'no_focus'                               -> NO_FOCUS
   'focus_follows_mouse'                    -> FOCUS_FOLLOWS_MOUSE
   'mouse_warping'                          -> MOUSE_WARPING
+  'focus_wrapping'                         -> FOCUS_WRAPPING
   'force_focus_wrapping'                   -> FORCE_FOCUS_WRAPPING
   'force_xinerama', 'force-xinerama'       -> FORCE_XINERAMA
+  'disable_randr15', 'disable-randr15'     -> DISABLE_RANDR15
   'workspace_auto_back_and_forth'          -> WORKSPACE_BACK_AND_FORTH
   'fake_outputs', 'fake-outputs'           -> FAKE_OUTPUTS
   'force_display_urgency_hint'             -> FORCE_DISPLAY_URGENCY_HINT
   'focus_on_window_activation'             -> FOCUS_ON_WINDOW_ACTIVATION
+  'title_align'                            -> TITLE_ALIGN
   'show_marks'                             -> SHOW_MARKS
   'workspace'                              -> WORKSPACE
   'ipc_socket', 'ipc-socket'               -> IPC_SOCKET
+  'ipc_kill_timeout'                       -> IPC_KILL_TIMEOUT
   'restart_state'                          -> RESTART_STATE
   'popup_during_fullscreen'                -> POPUP_DURING_FULLSCREEN
   exectype = 'exec_always', 'exec'         -> EXEC
@@ -101,30 +108,30 @@ state WORKSPACE_LAYOUT:
   layout = 'default', 'stacking', 'stacked', 'tabbed'
       -> call cfg_workspace_layout($layout)
 
-# new_window <normal|1pixel|none>
-# new_float <normal|1pixel|none>
-state NEW_WINDOW:
+# <default_border|new_window> <normal|1pixel|none>
+# <default_floating_border|new_float> <normal|1pixel|none>
+state DEFAULT_BORDER:
   border = 'normal', 'pixel'
-      -> NEW_WINDOW_PIXELS
+      -> DEFAULT_BORDER_PIXELS
   border = '1pixel', 'none'
-      -> call cfg_new_window($windowtype, $border, -1)
+      -> call cfg_default_border($windowtype, $border, -1)
 
-state NEW_WINDOW_PIXELS:
+state DEFAULT_BORDER_PIXELS:
   end
-      -> call cfg_new_window($windowtype, $border, 2)
+      -> call cfg_default_border($windowtype, $border, 2)
   width = number
-      -> NEW_WINDOW_PIXELS_PX
+      -> DEFAULT_BORDER_PIXELS_PX
 
-state NEW_WINDOW_PIXELS_PX:
+state DEFAULT_BORDER_PIXELS_PX:
   'px'
       ->
   end
-      -> call cfg_new_window($windowtype, $border, &width)
+      -> call cfg_default_border($windowtype, $border, &width)
 
-# hide_edge_borders <none|vertical|horizontal|both>
+# hide_edge_borders <none|vertical|horizontal|both|smart>
 # also hide_edge_borders <bool> for compatibility
 state HIDE_EDGE_BORDERS:
-  hide_borders = 'none', 'vertical', 'horizontal', 'both'
+  hide_borders = 'none', 'vertical', 'horizontal', 'both', 'smart'
       -> call cfg_hide_edge_borders($hide_borders)
   hide_borders = '1', 'yes', 'true', 'on', 'enable', 'active'
       -> call cfg_hide_edge_borders($hide_borders)
@@ -138,7 +145,7 @@ state FOR_WINDOW_COMMAND:
   command = string
       -> call cfg_for_window($command)
 
-# assign <criteria> [→] workspace
+# assign <criteria> [→] [workspace | output] <name>
 state ASSIGN:
   '['
       -> call cfg_criteria_init(ASSIGN_WORKSPACE); CRITERIA
@@ -146,10 +153,22 @@ state ASSIGN:
 state ASSIGN_WORKSPACE:
   '→'
       ->
+  'output'
+      -> ASSIGN_OUTPUT
   'workspace'
       ->
+  'number'
+      -> ASSIGN_WORKSPACE_NUMBER
   workspace = string
-      -> call cfg_assign($workspace)
+      -> call cfg_assign($workspace, 0)
+
+state ASSIGN_OUTPUT:
+  output = string
+      -> call cfg_assign_output($output)
+
+state ASSIGN_WORKSPACE_NUMBER:
+  number = string
+      -> call cfg_assign($number, 1)
 
 # no_focus <criteria>
 state NO_FOCUS:
@@ -172,6 +191,8 @@ state CRITERIA:
   ctype = 'title'       -> CRITERION
   ctype = 'urgent'      -> CRITERION
   ctype = 'workspace'   -> CRITERION
+  ctype = 'tiling', 'floating'
+      -> call cfg_criteria_add($ctype, NULL); CRITERIA
   ']'
       -> call cfg_criteria_pop_state()
 
@@ -192,6 +213,11 @@ state MOUSE_WARPING:
   value = 'none', 'output'
       -> call cfg_mouse_warping($value)
 
+# focus_wrapping
+state FOCUS_WRAPPING:
+  value = '1', 'yes', 'true', 'on', 'enable', 'active', '0', 'no', 'false', 'off', 'disable', 'inactive', 'force'
+      -> call cfg_focus_wrapping($value)
+
 # force_focus_wrapping
 state FORCE_FOCUS_WRAPPING:
   value = word
@@ -201,6 +227,11 @@ state FORCE_FOCUS_WRAPPING:
 state FORCE_XINERAMA:
   value = word
       -> call cfg_force_xinerama($value)
+
+# disable_randr15
+state DISABLE_RANDR15:
+  value = word
+      -> call cfg_disable_randr15($value)
 
 # workspace_back_and_forth
 state WORKSPACE_BACK_AND_FORTH:
@@ -217,6 +248,11 @@ state FAKE_OUTPUTS:
 state FORCE_DISPLAY_URGENCY_HINT:
   duration_ms = number
       -> FORCE_DISPLAY_URGENCY_HINT_MS
+
+# title_align [left|center|right]
+state TITLE_ALIGN:
+  alignment = 'left', 'center', 'right'
+      -> call cfg_title_align($alignment)
 
 # show_marks
 state SHOW_MARKS:
@@ -244,13 +280,18 @@ state WORKSPACE_OUTPUT:
       -> WORKSPACE_OUTPUT_STR
 
 state WORKSPACE_OUTPUT_STR:
-  output = word
+  output = string
       -> call cfg_workspace($workspace, $output)
 
 # ipc-socket <path>
 state IPC_SOCKET:
   path = string
       -> call cfg_ipc_socket($path)
+
+# ipc_kill_timeout
+state IPC_KILL_TIMEOUT:
+  timeout = number
+      -> call cfg_ipc_kill_timeout(&timeout)
 
 # restart_state <path> (for testcases)
 state RESTART_STATE:
@@ -312,6 +353,8 @@ state BINDING:
       ->
   whole_window = '--whole-window'
       ->
+  exclude_titlebar = '--exclude-titlebar'
+      ->
   modifiers = 'Mod1', 'Mod2', 'Mod3', 'Mod4', 'Mod5', 'Shift', 'Control', 'Ctrl', 'Mode_switch', 'Group1', 'Group2', 'Group3', 'Group4', '$mod'
       ->
   '+'
@@ -326,8 +369,10 @@ state BINDCOMMAND:
       ->
   whole_window = '--whole-window'
       ->
+  exclude_titlebar = '--exclude-titlebar'
+      ->
   command = string
-      -> call cfg_binding($bindtype, $modifiers, $key, $release, $border, $whole_window, $command)
+      -> call cfg_binding($bindtype, $modifiers, $key, $release, $border, $whole_window, $exclude_titlebar, $command)
 
 ################################################################################
 # Mode configuration
@@ -367,6 +412,8 @@ state MODE_BINDING:
       ->
   whole_window = '--whole-window'
       ->
+  exclude_titlebar = '--exclude-titlebar'
+      ->
   modifiers = 'Mod1', 'Mod2', 'Mod3', 'Mod4', 'Mod5', 'Shift', 'Control', 'Ctrl', 'Mode_switch', 'Group1', 'Group2', 'Group3', 'Group4', '$mod'
       ->
   '+'
@@ -381,8 +428,10 @@ state MODE_BINDCOMMAND:
       ->
   whole_window = '--whole-window'
       ->
+  exclude_titlebar = '--exclude-titlebar'
+      ->
   command = string
-      -> call cfg_mode_binding($bindtype, $modifiers, $key, $release, $border, $whole_window, $command); MODE
+      -> call cfg_mode_binding($bindtype, $modifiers, $key, $release, $border, $whole_window, $exclude_titlebar, $command); MODE
 
 ################################################################################
 # Bar configuration (i3bar)
@@ -418,6 +467,7 @@ state BAR:
   'binding_mode_indicator' -> BAR_BINDING_MODE_INDICATOR
   'workspace_buttons'      -> BAR_WORKSPACE_BUTTONS
   'strip_workspace_numbers' -> BAR_STRIP_WORKSPACE_NUMBERS
+  'strip_workspace_name' -> BAR_STRIP_WORKSPACE_NAME
   'verbose'                -> BAR_VERBOSE
   'colors'                 -> BAR_COLORS_BRACE
   '}'
@@ -453,8 +503,14 @@ state BAR_ID:
       -> call cfg_bar_id($bar_id); BAR
 
 state BAR_MODIFIER:
-  modifier = 'Mod1', 'Mod2', 'Mod3', 'Mod4', 'Mod5', 'Control', 'Ctrl', 'Shift', 'none', 'off'
-      -> call cfg_bar_modifier($modifier); BAR
+  'off', 'none'
+      -> call cfg_bar_modifier(NULL); BAR
+  modifiers = 'Mod1', 'Mod2', 'Mod3', 'Mod4', 'Mod5', 'Shift', 'Control', 'Ctrl'
+      ->
+  '+'
+      ->
+  end
+      -> call cfg_bar_modifier($modifiers); BAR
 
 state BAR_WHEEL_UP_CMD:
   command = string
@@ -465,12 +521,16 @@ state BAR_WHEEL_DOWN_CMD:
       -> call cfg_bar_wheel_down_cmd($command); BAR
 
 state BAR_BINDSYM:
+  release = '--release'
+      ->
   button = word
       -> BAR_BINDSYM_COMMAND
 
 state BAR_BINDSYM_COMMAND:
+  release = '--release'
+      ->
   command = string
-      -> call cfg_bar_bindsym($button, $command); BAR
+      -> call cfg_bar_bindsym($button, $release, $command); BAR
 
 state BAR_POSITION:
   position = 'top', 'bottom'
@@ -513,6 +573,10 @@ state BAR_WORKSPACE_BUTTONS:
 state BAR_STRIP_WORKSPACE_NUMBERS:
   value = word
       -> call cfg_bar_strip_workspace_numbers($value); BAR
+
+state BAR_STRIP_WORKSPACE_NAME:
+  value = word
+      -> call cfg_bar_strip_workspace_name($value); BAR
 
 state BAR_VERBOSE:
   value = word

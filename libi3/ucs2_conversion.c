@@ -5,13 +5,13 @@
  * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  */
+#include "libi3.h"
+
 #include <err.h>
 #include <errno.h>
 #include <iconv.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include "libi3.h"
 
 static iconv_t utf8_conversion_descriptor = (iconv_t)-1;
 static iconv_t ucs2_conversion_descriptor = (iconv_t)-1;
@@ -83,8 +83,7 @@ xcb_char2b_t *convert_utf8_to_ucs2(char *input, size_t *real_strlen) {
     }
 
     /* Do the conversion */
-    size_t rc = iconv(ucs2_conversion_descriptor, (char **)&input,
-                      &input_size, (char **)&output, &output_size);
+    size_t rc = iconv(ucs2_conversion_descriptor, &input, &input_size, (char **)&output, &output_size);
     if (rc == (size_t)-1) {
         perror("Converting to UCS-2 failed");
         free(buffer);

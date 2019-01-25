@@ -5,11 +5,13 @@
  * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * For more information on RandR, please see the X.org RandR specification at
- * http://cgit.freedesktop.org/xorg/proto/randrproto/tree/randrproto.txt
+ * https://cgit.freedesktop.org/xorg/proto/randrproto/tree/randrproto.txt
  * (take your time to read it completely, it answers all questions).
  *
  */
 #pragma once
+
+#include <config.h>
 
 #include "data.h"
 #include <xcb/randr.h>
@@ -27,7 +29,7 @@ typedef enum {
  * XRandR information to setup workspaces for each screen.
  *
  */
-void randr_init(int *event_base);
+void randr_init(int *event_base, const bool disable_randr15);
 
 /**
  * Initializes a CT_OUTPUT Con (searches existing ones from inplace restart
@@ -61,16 +63,23 @@ void init_ws_for_output(Output *output, Con *content);
 void randr_query_outputs(void);
 
 /**
+ * Disables the output and moves its content.
+ *
+ */
+void randr_disable_output(Output *output);
+
+/**
  * Returns the first output which is active.
  *
  */
 Output *get_first_output(void);
 
 /**
- * Returns the output with the given name if it is active (!) or NULL.
+ * Returns the output with the given name or NULL.
+ * If require_active is true, only active outputs are considered.
  *
  */
-Output *get_output_by_name(const char *name);
+Output *get_output_by_name(const char *name, const bool require_active);
 
 /**
  * Returns the active (!) output which contains the coordinates x, y or NULL
@@ -79,15 +88,29 @@ Output *get_output_by_name(const char *name);
  */
 Output *get_output_containing(unsigned int x, unsigned int y);
 
-/*
- * In contained_by_output, we check if any active output contains part of the container.
- * We do this by checking if the output rect is intersected by the Rect.
- * This is the 2-dimensional counterpart of get_output_containing.
- * Since we don't actually need the outputs intersected by the given Rect (There could
- * be many), we just return true or false for convenience.
+/**
+ * Returns the active output which contains the midpoint of the given rect. If
+ * such an output doesn't exist, returns the output which contains most of the
+ * rectangle or NULL if there is no output which intersects with it.
  *
  */
-bool contained_by_output(Rect rect);
+Output *get_output_from_rect(Rect rect);
+
+/**
+ * Returns the active output which spans exactly the area specified by
+ * rect or NULL if there is no output like this.
+ *
+ */
+Output *get_output_with_dimensions(Rect rect);
+
+/**
+ * In output_containing_rect, we check if any active output contains part of the container.
+ * We do this by checking if the output rect is intersected by the Rect.
+ * This is the 2-dimensional counterpart of get_output_containing.
+ * Returns the output with the maximum intersecting area.
+ *
+ */
+Output *output_containing_rect(Rect rect);
 
 /**
  * Gets the output which is the next one in the given direction.
@@ -114,7 +137,7 @@ Output *get_output_next(direction_t direction, Output *current, output_close_far
  */
 Output *get_output_next_wrap(direction_t direction, Output *current);
 
-/*
+/**
  * Creates an output covering the root window.
  *
  */

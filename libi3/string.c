@@ -9,15 +9,12 @@
  *           others want UTF-8 (Pango).
  *
  */
+#include "libi3.h"
 
 #include <stdlib.h>
 #include <string.h>
 
-#if PANGO_SUPPORT
 #include <glib.h>
-#endif
-
-#include "libi3.h"
 
 struct _i3String {
     char *utf8;
@@ -33,15 +30,7 @@ struct _i3String {
  *
  */
 i3String *i3string_from_utf8(const char *from_utf8) {
-    i3String *str = scalloc(1, sizeof(i3String));
-
-    /* Get the text */
-    str->utf8 = sstrdup(from_utf8);
-
-    /* Compute and store the length */
-    str->num_bytes = strlen(str->utf8);
-
-    return str;
+    return i3string_from_utf8_with_length(from_utf8, -1);
 }
 
 /*
@@ -59,20 +48,18 @@ i3String *i3string_from_markup(const char *from_markup) {
 
 /*
  * Build an i3String from an UTF-8 encoded string with fixed length.
- * To be used when no proper NUL-terminaison is available.
+ * To be used when no proper NULL-termination is available.
  * Returns the newly-allocated i3String.
  *
  */
-i3String *i3string_from_utf8_with_length(const char *from_utf8, size_t num_bytes) {
+i3String *i3string_from_utf8_with_length(const char *from_utf8, ssize_t num_bytes) {
     i3String *str = scalloc(1, sizeof(i3String));
 
-    /* Copy the actual text to our i3String */
-    str->utf8 = scalloc(num_bytes + 1, 1);
-    strncpy(str->utf8, from_utf8, num_bytes);
-    str->utf8[num_bytes] = '\0';
+    /* g_utf8_make_valid NULL-terminates the string. */
+    str->utf8 = g_utf8_make_valid(from_utf8, num_bytes);
 
-    /* Store the length */
-    str->num_bytes = num_bytes;
+    /* num_bytes < 0 means NULL-terminated string, need to calculate length */
+    str->num_bytes = num_bytes < 0 ? strlen(str->utf8) : (size_t)num_bytes;
 
     return str;
 }
@@ -112,7 +99,7 @@ i3String *i3string_from_ucs2(const xcb_char2b_t *from_ucs2, size_t num_glyphs) {
     return str;
 }
 
-/**
+/*
  * Copies the given i3string.
  * Note that this will not free the source string.
  */
@@ -192,15 +179,11 @@ void i3string_set_markup(i3String *str, bool pango_markup) {
  * Escape pango markup characters in the given string.
  */
 i3String *i3string_escape_markup(i3String *str) {
-#if PANGO_SUPPORT
     const char *text = i3string_as_utf8(str);
     char *escaped = g_markup_escape_text(text, -1);
     i3String *result = i3string_from_utf8(escaped);
     free(escaped);
     return result;
-#else
-    return str;
-#endif
 }
 
 /*

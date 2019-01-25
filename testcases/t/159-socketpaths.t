@@ -2,13 +2,13 @@
 # vim:ts=4:sw=4:expandtab
 #
 # Please read the following documents before working on tests:
-# • http://build.i3wm.org/docs/testsuite.html
+# • https://build.i3wm.org/docs/testsuite.html
 #   (or docs/testsuite)
 #
-# • http://build.i3wm.org/docs/lib-i3test.html
+# • https://build.i3wm.org/docs/lib-i3test.html
 #   (alternatively: perldoc ./testcases/lib/i3test.pm)
 #
-# • http://build.i3wm.org/docs/ipc.html
+# • https://build.i3wm.org/docs/ipc.html
 #   (or docs/ipc)
 #
 # • http://onyxneon.com/books/modern_perl/modern_perl_a4.pdf
@@ -65,7 +65,7 @@ ok(-S $socketpath, "file $socketpath exists and is a socket");
 exit_gracefully($pid);
 
 #####################################################################
-# configuration file case: socket gets placed whereever we specify
+# configuration file case: socket gets placed wherever we specify
 #####################################################################
 
 my $tmpdir = tempdir(CLEANUP => 1);

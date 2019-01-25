@@ -2,13 +2,13 @@
 # vim:ts=4:sw=4:expandtab
 #
 # Please read the following documents before working on tests:
-# • http://build.i3wm.org/docs/testsuite.html
+# • https://build.i3wm.org/docs/testsuite.html
 #   (or docs/testsuite)
 #
-# • http://build.i3wm.org/docs/lib-i3test.html
+# • https://build.i3wm.org/docs/lib-i3test.html
 #   (alternatively: perldoc ./testcases/lib/i3test.pm)
 #
-# • http://build.i3wm.org/docs/ipc.html
+# • https://build.i3wm.org/docs/ipc.html
 #   (or docs/ipc)
 #
 # • http://onyxneon.com/books/modern_perl/modern_perl_a4.pdf
@@ -45,7 +45,7 @@ is($x->input_focus, $win3->{id}, 'it should not disturb focus');
 ###############################################################################
 
 # test all window types
-my %window_types = ( 
+my %window_types = (
     'normal'        => '_NET_WM_WINDOW_TYPE_NORMAL',
     'dialog'        => '_NET_WM_WINDOW_TYPE_DIALOG',
     'utility'       => '_NET_WM_WINDOW_TYPE_UTILITY',

@@ -9,6 +9,8 @@
  */
 #pragma once
 
+#include <config.h>
+
 /**
  * Updates _NET_CURRENT_DESKTOP with the current desktop number.
  *
@@ -82,6 +84,12 @@ void ewmh_update_client_list_stacking(xcb_window_t *stack, int num_windows);
 void ewmh_update_sticky(xcb_window_t window, bool sticky);
 
 /**
+ * Set or remove _NEW_WM_STATE_FOCUSED on the window.
+ *
+ */
+void ewmh_update_focused(xcb_window_t window, bool is_focused);
+
+/**
  * Set up the EWMH hints on the root window.
  *
  */
@@ -90,9 +98,9 @@ void ewmh_setup_hints(void);
 /**
  * i3 currently does not support _NET_WORKAREA, because it does not correspond
  * to i3’s concept of workspaces. See also:
- * http://bugs.i3wm.org/539
- * http://bugs.i3wm.org/301
- * http://bugs.i3wm.org/1038
+ * https://bugs.i3wm.org/539
+ * https://bugs.i3wm.org/301
+ * https://bugs.i3wm.org/1038
  *
  * We need to actively delete this property because some display managers (e.g.
  * LightDM) set it.

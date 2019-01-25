@@ -57,7 +57,7 @@ sub wait_for_x {
 =head2 start_xserver($parallel)
 
 Starts C<$parallel> (or number of cores * 2 if undef) Xephyr processes (see
-http://www.freedesktop.org/wiki/Software/Xephyr/) and returns two arrayrefs: a
+https://www.freedesktop.org/wiki/Software/Xephyr/) and returns two arrayrefs: a
 list of X11 display numbers to the Xephyr processes and a list of PIDs of the
 processes.
 
@@ -68,15 +68,6 @@ sub start_xserver {
 
     my @displays = ();
     my @childpids = ();
-
-    $SIG{CHLD} = sub {
-        my $child = waitpid -1, POSIX::WNOHANG;
-        @pids = grep { $_ != $child } @pids;
-        return unless @pids == 0;
-        print STDERR "All X server processes died.\n";
-        print STDERR "Use ./complete-run.pl --parallel 1 --keep-xserver-output\n";
-        exit 1;
-    };
 
     # Yeah, I know it’s non-standard, but Perl’s POSIX module doesn’t have
     # _SC_NPROCESSORS_CONF.
@@ -96,16 +87,25 @@ sub start_xserver {
 
     # First get the last used display number, then increment it by one.
     # Effectively falls back to 1 if no X server is running.
-    my ($displaynum) = map { /(\d+)$/ } reverse sort glob($x_socketpath . '*');
+    my ($displaynum) = reverse sort { $a <=> $b } map{ /(\d+)$/ } glob($x_socketpath . '*');
     $displaynum++;
 
     say "Starting $parallel Xephyr instances, starting at :$displaynum...";
+
+    $SIG{CHLD} = sub {
+        my $child = waitpid -1, POSIX::WNOHANG;
+        @pids = grep { $_ != $child } @pids;
+        return unless @pids == 0;
+        print STDERR "All X server processes died.\n";
+        print STDERR "Use ./complete-run.pl --parallel 1 --keep-xserver-output\n";
+        exit 1;
+    };
 
     my @sockets_waiting;
     for (1 .. $parallel) {
         my $socket = fork_xserver($keep_xserver_output, $displaynum,
                 'Xephyr', ":$displaynum", '-screen', '1280x800',
-                '-nolisten', 'tcp');
+                '-nolisten', 'tcp', '-name', "i3test");
         push(@displays, ":$displaynum");
         push(@sockets_waiting, $socket);
         $displaynum++;

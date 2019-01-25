@@ -1,5 +1,3 @@
-#undef I3__FILE__
-#define I3__FILE__ "manage.c"
 /*
  * vim:ts=4:sw=4:expandtab
  *
@@ -10,6 +8,7 @@
  *
  */
 #include "all.h"
+
 #include "yajl_utils.h"
 
 #include <yajl/yajl_gen.h>
@@ -170,7 +169,9 @@ void manage_window(xcb_window_t window, xcb_get_window_attributes_cookie_t cooki
     cwindow->id = window;
     cwindow->depth = get_visual_depth(attr->visual);
 
-    xcb_grab_buttons(conn, window, bindings_should_grab_scrollwheel_buttons());
+    int *buttons = bindings_get_buttons_to_grab();
+    xcb_grab_buttons(conn, window, buttons);
+    FREE(buttons);
 
     /* update as much information as possible so far (some replies may be NULL) */
     window_update_class(cwindow, xcb_get_property_reply(conn, class_cookie, NULL), true);
@@ -229,7 +230,7 @@ void manage_window(xcb_window_t window, xcb_get_window_attributes_cookie_t cooki
         LOG("This window is of type dock\n");
         Output *output = get_output_containing(geom->x, geom->y);
         if (output != NULL) {
-            DLOG("Starting search at output %s\n", output->name);
+            DLOG("Starting search at output %s\n", output_primary_name(output));
             search_at = output->con;
         }
 
@@ -273,22 +274,31 @@ void manage_window(xcb_window_t window, xcb_get_window_attributes_cookie_t cooki
 
     DLOG("Initial geometry: (%d, %d, %d, %d)\n", geom->x, geom->y, geom->width, geom->height);
 
-    Con *nc = NULL;
-    Match *match = NULL;
-    Assignment *assignment;
-
-    /* TODO: two matches for one container */
-
     /* See if any container swallows this new window */
-    nc = con_for_window(search_at, cwindow, &match);
+    Match *match = NULL;
+    Con *nc = con_for_window(search_at, cwindow, &match);
     const bool match_from_restart_mode = (match && match->restart_mode);
     if (nc == NULL) {
         Con *wm_desktop_ws = NULL;
+        Assignment *assignment;
 
         /* If not, check if it is assigned to a specific workspace */
-        if ((assignment = assignment_for(cwindow, A_TO_WORKSPACE))) {
+        if ((assignment = assignment_for(cwindow, A_TO_WORKSPACE)) ||
+            (assignment = assignment_for(cwindow, A_TO_WORKSPACE_NUMBER))) {
             DLOG("Assignment matches (%p)\n", match);
-            Con *assigned_ws = workspace_get(assignment->dest.workspace, NULL);
+
+            Con *assigned_ws = NULL;
+            if (assignment->type == A_TO_WORKSPACE_NUMBER) {
+                long parsed_num = ws_name_to_number(assignment->dest.workspace);
+
+                assigned_ws = get_existing_workspace_by_num(parsed_num);
+            }
+            /* A_TO_WORKSPACE type assignment or fallback from A_TO_WORKSPACE_NUMBER
+             * when the target workspace number does not exist yet. */
+            if (!assigned_ws) {
+                assigned_ws = workspace_get(assignment->dest.workspace, NULL);
+            }
+
             nc = con_descend_tiling_focused(assigned_ws);
             DLOG("focused on ws %s: %p / %s\n", assigned_ws->name, nc, nc->name);
             if (nc->type == CT_WORKSPACE)
@@ -332,6 +342,10 @@ void manage_window(xcb_window_t window, xcb_get_window_attributes_cookie_t cooki
             } else
                 nc = tree_open_con(NULL, cwindow);
         }
+
+        if ((assignment = assignment_for(cwindow, A_TO_OUTPUT))) {
+            con_move_to_output_name(nc, assignment->dest.output, true);
+        }
     } else {
         /* M_BELOW inserts the new window as a child of the one which was
          * matched (e.g. dock areas) */
@@ -365,8 +379,16 @@ void manage_window(xcb_window_t window, xcb_get_window_attributes_cookie_t cooki
             }
         }
     }
+    xcb_window_t old_frame = XCB_NONE;
     if (nc->window != cwindow && nc->window != NULL) {
         window_free(nc->window);
+        /* Match frame and window depth. This is needed because X will refuse to reparent a
+         * window whose background is ParentRelative under a window with a different depth. */
+        if (nc->depth != cwindow->depth) {
+            old_frame = nc->frame.id;
+            nc->depth = cwindow->depth;
+            x_con_reframe(nc);
+        }
     }
     nc->window = cwindow;
     x_reinit(nc);
@@ -380,15 +402,21 @@ void manage_window(xcb_window_t window, xcb_get_window_attributes_cookie_t cooki
 
     /* handle fullscreen containers */
     Con *ws = con_get_workspace(nc);
-    Con *fs = (ws ? con_get_fullscreen_con(ws, CF_OUTPUT) : NULL);
-    if (fs == NULL)
-        fs = con_get_fullscreen_con(croot, CF_GLOBAL);
+    Con *fs = con_get_fullscreen_covering_ws(ws);
 
     if (xcb_reply_contains_atom(state_reply, A__NET_WM_STATE_FULLSCREEN)) {
         /* If this window is already fullscreen (after restarting!), skip
          * toggling fullscreen, that would drop it out of fullscreen mode. */
-        if (fs != nc)
+        if (fs != nc) {
+            Output *output = get_output_with_dimensions((Rect){geom->x, geom->y, geom->width, geom->height});
+            /* If the requested window geometry spans the whole area
+             * of an output, move the window to that output. This is
+             * needed e.g. for LibreOffice Impress multi-monitor
+             * presentations to work out of the box. */
+            if (output != NULL)
+                con_move_to_output(nc, output, false);
             con_toggle_fullscreen(nc, CF_OUTPUT);
+        }
         fs = NULL;
     }
 
@@ -455,7 +483,10 @@ void manage_window(xcb_window_t window, xcb_get_window_attributes_cookie_t cooki
     if (xcb_reply_contains_atom(state_reply, A__NET_WM_STATE_STICKY))
         nc->sticky = true;
 
-    if (cwindow->wm_desktop == NET_WM_DESKTOP_ALL) {
+    /* We ignore the hint for an internal workspace because windows in the
+     * scratchpad also have this value, but upon restarting i3 we don't want
+     * them to become sticky windows. */
+    if (cwindow->wm_desktop == NET_WM_DESKTOP_ALL && (ws == NULL || !con_is_internal(ws))) {
         DLOG("This window has _NET_WM_DESKTOP = 0xFFFFFFFF. Will float it and make it sticky.\n");
         nc->sticky = true;
         want_floating = true;
@@ -512,6 +543,18 @@ void manage_window(xcb_window_t window, xcb_get_window_attributes_cookie_t cooki
         geom->y = wm_size_hints.y;
         geom->width = wm_size_hints.width;
         geom->height = wm_size_hints.height;
+    }
+
+    if (wm_size_hints.flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) {
+        DLOG("Window specifies minimum size %d x %d\n", wm_size_hints.min_width, wm_size_hints.min_height);
+        nc->window->min_width = wm_size_hints.min_width;
+        nc->window->min_height = wm_size_hints.min_height;
+    }
+
+    if (wm_size_hints.flags & XCB_ICCCM_SIZE_HINT_P_MAX_SIZE) {
+        DLOG("Window specifies maximum size %d x %d\n", wm_size_hints.max_width, wm_size_hints.max_height);
+        nc->window->max_width = wm_size_hints.max_width;
+        nc->window->max_height = wm_size_hints.max_height;
     }
 
     /* Store the requested geometry. The width/height gets raised to at least
@@ -610,7 +653,7 @@ void manage_window(xcb_window_t window, xcb_get_window_attributes_cookie_t cooki
         /* The first window on a workspace should always be focused. We have to
          * compare with == 1 because the container has already been inserted at
          * this point. */
-        if (con_num_children(ws) == 1) {
+        if (con_num_windows(ws) == 1) {
             DLOG("This is the first window on this workspace, ignoring no_focus.\n");
         } else {
             DLOG("no_focus was set for con = %p, not setting focus.\n", nc);
@@ -635,14 +678,31 @@ void manage_window(xcb_window_t window, xcb_get_window_attributes_cookie_t cooki
         xcb_discard_reply(conn, wm_user_time_cookie.sequence);
     }
 
+    if (set_focus) {
+        /* Even if the client doesn't want focus, we still need to focus the
+         * container to not break focus workflows. Our handling towards X will
+         * take care of not setting the input focus. However, one exception to
+         * this are clients using the globally active input model which we
+         * don't want to focus at all. */
+        if (nc->window->doesnt_accept_focus && !nc->window->needs_take_focus) {
+            set_focus = false;
+        }
+    }
+
     /* Defer setting focus after the 'new' event has been sent to ensure the
      * proper window event sequence. */
-    if (set_focus && !nc->window->doesnt_accept_focus && nc->mapped) {
+    if (set_focus && nc->mapped) {
         DLOG("Now setting focus.\n");
-        con_focus(nc);
+        con_activate(nc);
     }
 
     tree_render();
+
+    /* Destroy the old frame if we had to reframe the container. This needs to be done
+     * after rendering in order to prevent the background from flickering in its place. */
+    if (old_frame != XCB_NONE) {
+        xcb_destroy_window(conn, old_frame);
+    }
 
     /* Windows might get managed with the urgency hint already set (Pidgin is
      * known to do that), so check for that and handle the hint accordingly.
@@ -661,5 +721,4 @@ geom_out:
     free(geom);
 out:
     free(attr);
-    return;
 }

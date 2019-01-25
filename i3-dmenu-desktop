@@ -25,7 +25,11 @@ binmode STDERR, ':utf8';
 # reads in a whole file
 sub slurp {
     my ($filename) = @_;
-    open(my $fh, '<', $filename) or die "$!";
+    my $fh;
+    if (!open($fh, '<', $filename)) {
+        warn "Could not open $filename: $!";
+        return undef;
+    }
     local $/;
     my $result;
     eval {
@@ -71,7 +75,7 @@ my $valid_types = {
 # For details on how the transformation of LC_MESSAGES to a list of keys that
 # should be looked up works, refer to “Localized values for keys” of the
 # “Desktop Entry Specification”:
-# http://standards.freedesktop.org/desktop-entry-spec/latest/ar01s04.html
+# https://standards.freedesktop.org/desktop-entry-spec/latest/ar01s04.html
 my $lc_messages = setlocale(LC_MESSAGES);
 
 # Ignore the encoding (e.g. .UTF-8)
@@ -99,7 +103,7 @@ push @suffixes, $lc_messages;
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 my %desktops;
-# See http://standards.freedesktop.org/basedir-spec/basedir-spec-latest.html#variables
+# See https://standards.freedesktop.org/basedir-spec/basedir-spec-latest.html#variables
 my $xdg_data_home = $ENV{XDG_DATA_HOME};
 $xdg_data_home = $ENV{HOME} . '/.local/share' if
     !defined($xdg_data_home) ||
@@ -188,7 +192,7 @@ for my $file (values %desktops) {
                  $key eq 'Terminal') {
             # Values of type boolean must either be string true or false,
             # see “Possible value types”:
-            # http://standards.freedesktop.org/desktop-entry-spec/latest/ar01s03.html
+            # https://standards.freedesktop.org/desktop-entry-spec/latest/ar01s03.html
             $apps{$base}->{$key} = ($value eq 'true');
         }
     }
@@ -239,7 +243,7 @@ for my $app (keys %apps) {
     }
 
     # Don’t offer apps which have NoDisplay == true or Hidden == true.
-    # See http://wiki.xfce.org/howto/customize-menu#hide_menu_entries
+    # See https://wiki.xfce.org/howto/customize-menu#hide_menu_entries
     # for the difference between NoDisplay and Hidden.
     next if (exists($apps{$app}->{NoDisplay}) && $apps{$app}->{NoDisplay}) ||
             (exists($apps{$app}->{Hidden}) && $apps{$app}->{Hidden});
@@ -275,16 +279,42 @@ for my $app (keys %apps) {
         }
 
         $choices{$name} = $app;
+        next;
     }
 
     if ((scalar grep { $_ eq 'command' } @entry_types) > 0) {
-        my ($command) = split(' ', $apps{$app}->{Exec});
+        my $command = $apps{$app}->{Exec};
+
+        # Handle escape sequences (should be done for all string values, but does
+        # matter here).
+        my %escapes = (
+            '\\s' => ' ',
+            '\\n' => '\n',
+            '\\t' => '\t',
+            '\\r' => '\r',
+            '\\\\' => '\\',
+        );
+        $command =~ s/(\\[sntr\\])/$escapes{$1}/go;
+
+        # Extract executable
+        if ($command =~ m/^\s*([^\s\"]+)(?:\s|$)/) {
+            # No quotes
+            $command = $1;
+        } elsif ($command =~ m/^\s*\"([^\"\\]*(?:\\.[^\"\\]*)*)\"(?:\s|$)/) {
+            # Quoted, remove quotes and fix escaped characters
+            $command = $1;
+            $command =~ s/\\([\"\`\$\\])/$1/g;
+        } else {
+            # Invalid quotes, fallback to whitespace
+            ($command) = split(' ', $command);
+        }
 
         # Don’t add “geany” if “Geany” is already present.
         my @keys = map { lc } keys %choices;
-        next if (scalar grep { $_ eq lc(basename($command)) } @keys) > 0;
-
-        $choices{basename($command)} = $app;
+        if (!(scalar grep { $_ eq lc(basename($command)) } @keys) > 0) {
+            $choices{basename($command)} = $app;
+        }
+        next;
     }
 
     if ((scalar grep { $_ eq 'filename' } @entry_types) > 0) {
@@ -370,7 +400,7 @@ my $exec = $app->{Exec};
 my $location = $app->{_Location};
 
 # Quote as described by “The Exec key”:
-# http://standards.freedesktop.org/desktop-entry-spec/latest/ar01s06.html
+# https://standards.freedesktop.org/desktop-entry-spec/latest/ar01s06.html
 sub quote {
     my ($str) = @_;
     $str =~ s/("|`|\$|\\)/\\$1/g;

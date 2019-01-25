@@ -1,5 +1,3 @@
-#undef I3__FILE__
-#define I3__FILE__ "scratchpad.c"
 /*
  * vim:ts=4:sw=4:expandtab
  *
@@ -86,7 +84,7 @@ void scratchpad_move(Con *con) {
  * can press the same key to quickly look something up).
  *
  */
-void scratchpad_show(Con *con) {
+bool scratchpad_show(Con *con) {
     DLOG("should show scratchpad window %p\n", con);
     Con *__i3_scratch = workspace_get("__i3_scratch", NULL);
     Con *floating;
@@ -99,7 +97,7 @@ void scratchpad_show(Con *con) {
         floating->scratchpad_state != SCRATCHPAD_NONE) {
         DLOG("Focused window is a scratchpad window, hiding it.\n");
         scratchpad_move(focused);
-        return;
+        return true;
     }
 
     /* If the current con or any of its parents are in fullscreen mode, we
@@ -125,8 +123,8 @@ void scratchpad_show(Con *con) {
             /* use con_descend_tiling_focused to get the last focused
                  * window inside this scratch container in order to
                  * keep the focus the same within this container */
-            con_focus(con_descend_tiling_focused(walk_con));
-            return;
+            con_activate(con_descend_tiling_focused(walk_con));
+            return true;
         }
     }
 
@@ -143,7 +141,8 @@ void scratchpad_show(Con *con) {
             DLOG("Found a visible scratchpad window on another workspace,\n");
             DLOG("moving it to this workspace: con = %p\n", walk_con);
             con_move_to_workspace(walk_con, focused_ws, true, false, false);
-            return;
+            con_activate(con_descend_focused(walk_con));
+            return true;
         }
     }
 
@@ -151,7 +150,7 @@ void scratchpad_show(Con *con) {
      * is actually in the scratchpad */
     if (con && con->parent->scratchpad_state == SCRATCHPAD_NONE) {
         DLOG("Window is not in the scratchpad, doing nothing.\n");
-        return;
+        return false;
     }
 
     /* If this was 'scratchpad show' with criteria, we check if it matches a
@@ -167,7 +166,7 @@ void scratchpad_show(Con *con) {
         if (current == active) {
             DLOG("Window is a scratchpad window, hiding it.\n");
             scratchpad_move(con);
-            return;
+            return true;
         }
     }
 
@@ -180,7 +179,7 @@ void scratchpad_show(Con *con) {
         if (!con) {
             LOG("You don't have any scratchpad windows yet.\n");
             LOG("Use 'move scratchpad' to move a window to the scratchpad.\n");
-            return;
+            return false;
         }
     } else {
         /* We used a criterion, so we need to do what follows (moving,
@@ -207,7 +206,9 @@ void scratchpad_show(Con *con) {
         workspace_show(active);
     }
 
-    con_focus(con_descend_focused(con));
+    con_activate(con_descend_focused(con));
+
+    return true;
 }
 
 /*

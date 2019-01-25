@@ -1,5 +1,3 @@
-#undef I3__FILE__
-#define I3__FILE__ "config_directives.c"
 /*
  * vim:ts=4:sw=4:expandtab
  *
@@ -9,10 +7,10 @@
  * config_directives.c: all config storing functions (see config_parser.c)
  *
  */
+#include "all.h"
+
 #include <float.h>
 #include <stdarg.h>
-
-#include "all.h"
 
 /*******************************************************************************
  * Criteria functions.
@@ -108,8 +106,8 @@ CFGFUN(font, const char *font) {
     font_pattern = sstrdup(font);
 }
 
-CFGFUN(binding, const char *bindtype, const char *modifiers, const char *key, const char *release, const char *border, const char *whole_window, const char *command) {
-    configure_binding(bindtype, modifiers, key, release, border, whole_window, command, DEFAULT_BINDING_MODE, false);
+CFGFUN(binding, const char *bindtype, const char *modifiers, const char *key, const char *release, const char *border, const char *whole_window, const char *exclude_titlebar, const char *command) {
+    configure_binding(bindtype, modifiers, key, release, border, whole_window, exclude_titlebar, command, DEFAULT_BINDING_MODE, false);
 }
 
 /*******************************************************************************
@@ -119,15 +117,23 @@ CFGFUN(binding, const char *bindtype, const char *modifiers, const char *key, co
 static char *current_mode;
 static bool current_mode_pango_markup;
 
-CFGFUN(mode_binding, const char *bindtype, const char *modifiers, const char *key, const char *release, const char *border, const char *whole_window, const char *command) {
-    configure_binding(bindtype, modifiers, key, release, border, whole_window, command, current_mode, current_mode_pango_markup);
+CFGFUN(mode_binding, const char *bindtype, const char *modifiers, const char *key, const char *release, const char *border, const char *whole_window, const char *exclude_titlebar, const char *command) {
+    configure_binding(bindtype, modifiers, key, release, border, whole_window, exclude_titlebar, command, current_mode, current_mode_pango_markup);
 }
 
 CFGFUN(enter_mode, const char *pango_markup, const char *modename) {
     if (strcasecmp(modename, DEFAULT_BINDING_MODE) == 0) {
         ELOG("You cannot use the name %s for your mode\n", DEFAULT_BINDING_MODE);
-        exit(1);
+        return;
     }
+
+    struct Mode *mode;
+    SLIST_FOREACH(mode, &modes, modes) {
+        if (strcmp(mode->name, modename) == 0) {
+            ELOG("The binding mode with name \"%s\" is defined at least twice.\n", modename);
+        }
+    }
+
     DLOG("\t now in mode %s\n", modename);
     FREE(current_mode);
     current_mode = sstrdup(modename);
@@ -191,7 +197,7 @@ CFGFUN(workspace_layout, const char *layout) {
         config.default_layout = L_TABBED;
 }
 
-CFGFUN(new_window, const char *windowtype, const char *border, const long width) {
+CFGFUN(default_border, const char *windowtype, const char *border, const long width) {
     int border_style;
     int border_width;
 
@@ -209,7 +215,8 @@ CFGFUN(new_window, const char *windowtype, const char *border, const long width)
         border_width = width;
     }
 
-    if (strcmp(windowtype, "new_window") == 0) {
+    if ((strcmp(windowtype, "default_border") == 0) ||
+        (strcmp(windowtype, "new_window") == 0)) {
         DLOG("default tiled border style = %d and border width = %d (%d physical px)\n",
              border_style, border_width, logical_px(border_width));
         config.default_border = border_style;
@@ -223,18 +230,20 @@ CFGFUN(new_window, const char *windowtype, const char *border, const long width)
 }
 
 CFGFUN(hide_edge_borders, const char *borders) {
-    if (strcmp(borders, "vertical") == 0)
-        config.hide_edge_borders = ADJ_LEFT_SCREEN_EDGE | ADJ_RIGHT_SCREEN_EDGE;
+    if (strcmp(borders, "smart") == 0)
+        config.hide_edge_borders = HEBM_SMART;
+    else if (strcmp(borders, "vertical") == 0)
+        config.hide_edge_borders = HEBM_VERTICAL;
     else if (strcmp(borders, "horizontal") == 0)
-        config.hide_edge_borders = ADJ_UPPER_SCREEN_EDGE | ADJ_LOWER_SCREEN_EDGE;
+        config.hide_edge_borders = HEBM_HORIZONTAL;
     else if (strcmp(borders, "both") == 0)
-        config.hide_edge_borders = ADJ_LEFT_SCREEN_EDGE | ADJ_RIGHT_SCREEN_EDGE | ADJ_UPPER_SCREEN_EDGE | ADJ_LOWER_SCREEN_EDGE;
+        config.hide_edge_borders = HEBM_BOTH;
     else if (strcmp(borders, "none") == 0)
-        config.hide_edge_borders = ADJ_NONE;
+        config.hide_edge_borders = HEBM_NONE;
     else if (eval_boolstr(borders))
-        config.hide_edge_borders = ADJ_LEFT_SCREEN_EDGE | ADJ_RIGHT_SCREEN_EDGE;
+        config.hide_edge_borders = HEBM_VERTICAL;
     else
-        config.hide_edge_borders = ADJ_NONE;
+        config.hide_edge_borders = HEBM_NONE;
 }
 
 CFGFUN(focus_follows_mouse, const char *value) {
@@ -252,8 +261,31 @@ CFGFUN(force_xinerama, const char *value) {
     config.force_xinerama = eval_boolstr(value);
 }
 
+CFGFUN(disable_randr15, const char *value) {
+    config.disable_randr15 = eval_boolstr(value);
+}
+
+CFGFUN(focus_wrapping, const char *value) {
+    if (strcmp(value, "force") == 0) {
+        config.focus_wrapping = FOCUS_WRAPPING_FORCE;
+    } else if (eval_boolstr(value)) {
+        config.focus_wrapping = FOCUS_WRAPPING_ON;
+    } else {
+        config.focus_wrapping = FOCUS_WRAPPING_OFF;
+    }
+}
+
 CFGFUN(force_focus_wrapping, const char *value) {
-    config.force_focus_wrapping = eval_boolstr(value);
+    /* Legacy syntax. */
+    if (eval_boolstr(value)) {
+        config.focus_wrapping = FOCUS_WRAPPING_FORCE;
+    } else {
+        /* For "force_focus_wrapping off", don't enable or disable
+         * focus wrapping, just ensure it's not forced. */
+        if (config.focus_wrapping == FOCUS_WRAPPING_FORCE) {
+            config.focus_wrapping = FOCUS_WRAPPING_ON;
+        }
+    }
 }
 
 CFGFUN(workspace_back_and_forth, const char *value) {
@@ -286,31 +318,46 @@ CFGFUN(focus_on_window_activation, const char *mode) {
     DLOG("Set new focus_on_window_activation mode = %i.\n", config.focus_on_window_activation);
 }
 
+CFGFUN(title_align, const char *alignment) {
+    if (strcmp(alignment, "left") == 0) {
+        config.title_align = ALIGN_LEFT;
+    } else if (strcmp(alignment, "center") == 0) {
+        config.title_align = ALIGN_CENTER;
+    } else if (strcmp(alignment, "right") == 0) {
+        config.title_align = ALIGN_RIGHT;
+    } else {
+        assert(false);
+    }
+}
+
 CFGFUN(show_marks, const char *value) {
     config.show_marks = eval_boolstr(value);
 }
 
-CFGFUN(workspace, const char *workspace, const char *output) {
-    DLOG("Assigning workspace \"%s\" to output \"%s\"\n", workspace, output);
+CFGFUN(workspace, const char *workspace, const char *outputs) {
+    DLOG("Assigning workspace \"%s\" to outputs \"%s\"\n", workspace, outputs);
     /* Check for earlier assignments of the same workspace so that we
      * don’t have assignments of a single workspace to different
      * outputs */
     struct Workspace_Assignment *assignment;
-    bool duplicate = false;
     TAILQ_FOREACH(assignment, &ws_assignments, ws_assignments) {
         if (strcasecmp(assignment->name, workspace) == 0) {
             ELOG("You have a duplicate workspace assignment for workspace \"%s\"\n",
                  workspace);
-            assignment->output = sstrdup(output);
-            duplicate = true;
+            return;
         }
     }
-    if (!duplicate) {
+
+    char *buf = sstrdup(outputs);
+    char *output = strtok(buf, " ");
+    while (output != NULL) {
         assignment = scalloc(1, sizeof(struct Workspace_Assignment));
         assignment->name = sstrdup(workspace);
         assignment->output = sstrdup(output);
         TAILQ_INSERT_TAIL(&ws_assignments, assignment, ws_assignments);
+        output = strtok(NULL, " ");
     }
+    free(buf);
 }
 
 CFGFUN(ipc_socket, const char *path) {
@@ -365,15 +412,45 @@ CFGFUN(color, const char *colorclass, const char *border, const char *background
 #undef APPLY_COLORS
 }
 
-CFGFUN(assign, const char *workspace) {
+CFGFUN(assign_output, const char *output) {
     if (match_is_empty(current_match)) {
         ELOG("Match is empty, ignoring this assignment\n");
         return;
     }
+
+    if (current_match->window_mode != WM_ANY) {
+        ELOG("Assignments using window mode (floating/tiling) is not supported\n");
+        return;
+    }
+
+    DLOG("New assignment, using above criteria, to output \"%s\".\n", output);
+    Assignment *assignment = scalloc(1, sizeof(Assignment));
+    match_copy(&(assignment->match), current_match);
+    assignment->type = A_TO_OUTPUT;
+    assignment->dest.output = sstrdup(output);
+    TAILQ_INSERT_TAIL(&assignments, assignment, assignments);
+}
+
+CFGFUN(assign, const char *workspace, bool is_number) {
+    if (match_is_empty(current_match)) {
+        ELOG("Match is empty, ignoring this assignment\n");
+        return;
+    }
+
+    if (current_match->window_mode != WM_ANY) {
+        ELOG("Assignments using window mode (floating/tiling) is not supported\n");
+        return;
+    }
+
+    if (is_number && ws_name_to_number(workspace) == -1) {
+        ELOG("Could not parse initial part of \"%s\" as a number.\n", workspace);
+        return;
+    }
+
     DLOG("New assignment, using above criteria, to workspace \"%s\".\n", workspace);
     Assignment *assignment = scalloc(1, sizeof(Assignment));
     match_copy(&(assignment->match), current_match);
-    assignment->type = A_TO_WORKSPACE;
+    assignment->type = is_number ? A_TO_WORKSPACE_NUMBER : A_TO_WORKSPACE;
     assignment->dest.workspace = sstrdup(workspace);
     TAILQ_INSERT_TAIL(&assignments, assignment, assignments);
 }
@@ -389,6 +466,10 @@ CFGFUN(no_focus) {
     match_copy(&(assignment->match), current_match);
     assignment->type = A_NO_FOCUS;
     TAILQ_INSERT_TAIL(&assignments, assignment, assignments);
+}
+
+CFGFUN(ipc_kill_timeout, const long timeout_ms) {
+    ipc_set_kill_timeout(timeout_ms / 1000.0);
 }
 
 /*******************************************************************************
@@ -430,28 +511,11 @@ CFGFUN(bar_verbose, const char *verbose) {
     current_bar->verbose = eval_boolstr(verbose);
 }
 
-CFGFUN(bar_modifier, const char *modifier) {
-    if (strcmp(modifier, "Mod1") == 0)
-        current_bar->modifier = M_MOD1;
-    else if (strcmp(modifier, "Mod2") == 0)
-        current_bar->modifier = M_MOD2;
-    else if (strcmp(modifier, "Mod3") == 0)
-        current_bar->modifier = M_MOD3;
-    else if (strcmp(modifier, "Mod4") == 0)
-        current_bar->modifier = M_MOD4;
-    else if (strcmp(modifier, "Mod5") == 0)
-        current_bar->modifier = M_MOD5;
-    else if (strcmp(modifier, "Control") == 0 ||
-             strcmp(modifier, "Ctrl") == 0)
-        current_bar->modifier = M_CONTROL;
-    else if (strcmp(modifier, "Shift") == 0)
-        current_bar->modifier = M_SHIFT;
-    else if (strcmp(modifier, "none") == 0 ||
-             strcmp(modifier, "off") == 0)
-        current_bar->modifier = M_NONE;
+CFGFUN(bar_modifier, const char *modifiers) {
+    current_bar->modifier = modifiers ? event_state_from_str(modifiers) : XCB_NONE;
 }
 
-static void bar_configure_binding(const char *button, const char *command) {
+static void bar_configure_binding(const char *button, const char *release, const char *command) {
     if (strncasecmp(button, "button", strlen("button")) != 0) {
         ELOG("Bindings for a bar can only be mouse bindings, not \"%s\", ignoring.\n", button);
         return;
@@ -462,16 +526,18 @@ static void bar_configure_binding(const char *button, const char *command) {
         ELOG("Button \"%s\" does not seem to be in format 'buttonX'.\n", button);
         return;
     }
+    const bool release_bool = release != NULL;
 
     struct Barbinding *current;
     TAILQ_FOREACH(current, &(current_bar->bar_bindings), bindings) {
-        if (current->input_code == input_code) {
+        if (current->input_code == input_code && current->release == release_bool) {
             ELOG("command for button %s was already specified, ignoring.\n", button);
             return;
         }
     }
 
     struct Barbinding *new_binding = scalloc(1, sizeof(struct Barbinding));
+    new_binding->release = release_bool;
     new_binding->input_code = input_code;
     new_binding->command = sstrdup(command);
     TAILQ_INSERT_TAIL(&(current_bar->bar_bindings), new_binding, bindings);
@@ -479,16 +545,16 @@ static void bar_configure_binding(const char *button, const char *command) {
 
 CFGFUN(bar_wheel_up_cmd, const char *command) {
     ELOG("'wheel_up_cmd' is deprecated. Please us 'bindsym button4 %s' instead.\n", command);
-    bar_configure_binding("button4", command);
+    bar_configure_binding("button4", NULL, command);
 }
 
 CFGFUN(bar_wheel_down_cmd, const char *command) {
     ELOG("'wheel_down_cmd' is deprecated. Please us 'bindsym button5 %s' instead.\n", command);
-    bar_configure_binding("button5", command);
+    bar_configure_binding("button5", NULL, command);
 }
 
-CFGFUN(bar_bindsym, const char *button, const char *command) {
-    bar_configure_binding(button, command);
+CFGFUN(bar_bindsym, const char *button, const char *release, const char *command) {
+    bar_configure_binding(button, release, command);
 }
 
 CFGFUN(bar_position, const char *position) {
@@ -573,12 +639,16 @@ CFGFUN(bar_strip_workspace_numbers, const char *value) {
     current_bar->strip_workspace_numbers = eval_boolstr(value);
 }
 
+CFGFUN(bar_strip_workspace_name, const char *value) {
+    current_bar->strip_workspace_name = eval_boolstr(value);
+}
+
 CFGFUN(bar_start) {
     current_bar = scalloc(1, sizeof(struct Barconfig));
     TAILQ_INIT(&(current_bar->bar_bindings));
     TAILQ_INIT(&(current_bar->tray_outputs));
     current_bar->tray_padding = 2;
-    current_bar->modifier = M_MOD4;
+    current_bar->modifier = XCB_KEY_BUT_MASK_MOD_4;
 }
 
 CFGFUN(bar_finish) {
