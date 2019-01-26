@@ -26,14 +26,14 @@ I won't maintain an up-to-date **next** branch with KDE/Plasma patches included,
 The following settings are recommended:
 
 ```
-## general application settings
+# general application settings
 for_window [window_role="pop-up"] floating enable
 for_window [class="plasmashell"] floating enable
 
-## close plasma desktop windows
+# close plasma desktop windows
 for_window [title="Desktop — Plasma"] kill;
 
-## focus behaviour
+# disable focus
 no_focus [class="plasmashell"]
 no_focus [window_role="pop-up"]
 no_focus [window_type="notification"]
@@ -49,6 +49,7 @@ This might be related to the following KDE bug (https://bugs.kde.org/show_bug.cg
 I found this workaround for krunner there and also applied it to the plasmashell.
 
 ```
+# restart krunner & panel because of broken multimonitor handling
 exec --no-startup-id sleep 5 && kquitapp5 plasmashell && kstart plasmashell
 exec --no-startup-id sleep 5 && kquitapp5 krunner && kstart krunner
 ```
