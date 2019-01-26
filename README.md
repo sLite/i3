@@ -43,6 +43,16 @@ focus_follows_mouse no
 mouse_warping none
 ```
 
+If you are running a multi monitor setup, depending on the monitor setup you might run into problems with krunner and systray popups not opening properly. Opening on the wrong screen or just flickering and staying invisible.
+
+This might be related to the following KDE bug (https://bugs.kde.org/show_bug.cgi?id=344328). 
+I found this workaround for krunner there and also applied it to the plasmashell.
+
+```
+exec --no-startup-id sleep 5 && kquitapp5 plasmashell && kstart plasmashell
+exec --no-startup-id sleep 5 && kquitapp5 krunner && kstart krunner
+```
+
 If you want kmix, kcalc and those other small tools floating, those are settings you still have to do with your i3 config.
 
 ### Credits
