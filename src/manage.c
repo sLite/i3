@@ -259,19 +259,6 @@ void manage_window(xcb_window_t window, xcb_get_window_attributes_cookie_t cooki
         cwindow->dock = W_NODOCK;
     }    
 
-    if (xcb_reply_contains_atom(type_reply, A__NET_WM_WINDOW_TYPE_DESKTOP)) {
-        LOG("This window is of type desktop\n");
-
-        /* dont manage just map and move it to the bottom of the stack */
-        xcb_map_window(conn, window);
-
-        uint32_t values[] = { XCB_STACK_MODE_BELOW };
-        xcb_configure_window (conn, window, XCB_CONFIG_WINDOW_STACK_MODE, values);
-
-        goto geom_out;
-    }
-
-
     DLOG("Initial geometry: (%d, %d, %d, %d)\n", geom->x, geom->y, geom->width, geom->height);
 
     /* See if any container swallows this new window */
