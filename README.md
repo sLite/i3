@@ -19,16 +19,31 @@ I won't maintain an up-to-date **next** branch with KDE/Plasma patches included,
 
 ### Features
 
-* Proper handling of KDE/Plasma desktop (_NET_WM_WINDOW_TYPE_DESKTOP)
 * Proper handling of KDE/Plasma popups and floating panels (mostly widget stuff) (_NET_WM_STATE_STAYS_ON_TOP)
 
 ### i3-config
 
-No special settings needed.
+The following settings are recommended:
+
+```
+## general application settings
+for_window [window_role="pop-up"] floating enable
+for_window [class="plasmashell"] floating enable
+
+## close plasma desktop windows
+for_window [title="Desktop — Plasma"] kill;
+
+## focus behaviour
+no_focus [class="plasmashell"]
+no_focus [window_role="pop-up"]
+no_focus [window_type="notification"]
+
+focus_on_window_activation none
+focus_follows_mouse no
+mouse_warping none
+```
 
 If you want kmix, kcalc and those other small tools floating, those are settings you still have to do with your i3 config.
-
-You can check https://github.com/sLite/i3-config for an example config and instructions to set up KDE integration.
 
 ### Credits
 
